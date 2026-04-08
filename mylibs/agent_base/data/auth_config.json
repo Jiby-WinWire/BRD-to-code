@@ -1,0 +1,11 @@
+{
+    "azure": {
+      "tenant_id": "105b2061-b669-4b31-92ac-24d304d195dc",
+      "Authorized_role": "chathpe-agenticai-developer-adminadgroup"
+    },
+    "okta": {
+      "issuer": "https://dev-123456.okta.com/oauth2/default",
+      "audience": "api://default"
+    }
+  }
+  
