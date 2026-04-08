@@ -289,7 +289,7 @@ def create_brd_generation_tool(llm, deployment_name: str, memory_manager=None):
     Returns:
         Async function ready for ToolClass wrapping
     """
-    from mylibs.agent_base.tools import ToolClass
+    from agent_base.tools import ToolClass
     
     async def tool_function(user_prompt: str, task_id: str = None) -> str:
         """Generate BRD from user prompt"""
