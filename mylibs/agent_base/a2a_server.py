@@ -7,7 +7,7 @@ import json,os
 from starlette.requests import Request as StarletteRequest
 import uuid
 import uvicorn
-from agent_base.types import SendTaskRequest, TaskSendParams
+from .types import SendTaskRequest, TaskSendParams
 
 logger = logging.getLogger(__name__)
 
