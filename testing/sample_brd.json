@@ -1,0 +1,44 @@
+{
+  "business_goals": [
+    "Enable users to manage their accounts online",
+    "Improve user onboarding experience"
+  ],
+  "actors": ["End User"],
+  "modules": [
+    {"name": "Authentication"},
+    {"name": "Profile Management"}
+  ],
+  "requirements": [
+    {
+      "feature": "create an account",
+      "business_value": "Users can sign up quickly and securely",
+      "acceptance_criteria": [
+        "User provides email and password",
+        "System sends verification email",
+        "Account is created after verification"
+      ],
+      "criticality": "High",
+      "module": "Authentication"
+    },
+    {
+      "feature": "log in",
+      "business_value": "Users can access their account securely",
+      "acceptance_criteria": [
+        "User provides valid credentials",
+        "System authenticates and grants access"
+      ],
+      "criticality": "High",
+      "module": "Authentication"
+    },
+    {
+      "feature": "update profile",
+      "business_value": "Users can keep their information up to date",
+      "acceptance_criteria": [
+        "User can update name and contact info",
+        "System saves changes and confirms update"
+      ],
+      "criticality": "Medium",
+      "module": "Profile Management"
+    }
+  ]
+}

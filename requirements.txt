@@ -1,0 +1,13 @@
+agent-framework-azure-ai==1.0.0rc3
+agent-framework-core==1.0.0rc3
+azure-ai-agentserver-agentframework==1.0.0b16
+azure-ai-agentserver-core==1.0.0b16
+fastapi
+uvicorn
+pytest
+requests
+python-dotenv
+
+# Web UI dependencies
+streamlit>=1.30.0
+streamlit-sortables>=0.2.0
