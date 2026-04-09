@@ -52,15 +52,27 @@ class BRDTaskManager(InMemoryTaskManager):
         """
         logger.info(f"Received SendTaskRequest: {request.id}")
         task_id = request.id or str(uuid4())
+        # Safely get context_id from params, generate if not present
+        context_id = getattr(request.params, 'context_id', None) or str(uuid4())
         
         try:
-            # Extract user query from message
+            # Extract user query from message - handle dict and object formats
             user_query = None
             if request.params and request.params.message:
-                for part in request.params.message.parts:
-                    if isinstance(part, TextPart):
-                        user_query = part.text
-                        break
+                parts = request.params.message.parts if hasattr(request.params.message, 'parts') else []
+                
+                if parts:
+                    first_part = parts[0]
+                    if isinstance(first_part, dict):
+                        # Dictionary format: {'kind': 'text', 'text': '...'}
+                        user_query = first_part.get('text', '')
+                    elif hasattr(first_part, 'root'):
+                        # A2A SDK Part object with root.text structure
+                        if hasattr(first_part.root, 'text'):
+                            user_query = first_part.root.text
+                    elif hasattr(first_part, 'text'):
+                        # Direct object format with .text attribute
+                        user_query = first_part.text
             
             if not user_query:
                 raise ValueError("No text content found in request")
@@ -102,8 +114,15 @@ class BRDTaskManager(InMemoryTaskManager):
                     # Return failed task
                     task = Task(
                         id=task_id,
-                        status=TaskStatus.FAILED,
-                        message=Message(parts=[TextPart(text=error_msg)])
+                        context_id=context_id,
+                        status=TaskStatus(
+                            state="failed",
+                            message=Message(
+                                message_id=str(uuid4()),
+                                role="agent",
+                                parts=[TextPart(text=error_msg)]
+                            )
+                        )
                     )
                     return SendTaskResponse(id=request.id, result=task)
             
@@ -132,9 +151,16 @@ class BRDTaskManager(InMemoryTaskManager):
             )
             
             task = Task(
-                id=task_id,
-                status=TaskStatus.COMPLETED,
-                message=Message(parts=[TextPart(text=response_text)])
+         id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state="completed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=response_text)]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -153,8 +179,15 @@ class BRDTaskManager(InMemoryTaskManager):
             # Return failed task
             task = Task(
                 id=task_id,
-                status=TaskStatus.FAILED,
-                message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="failed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=f"Error: {str(e)}")]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -206,8 +239,10 @@ class BRDGeneratorAgent(AgentClass):
         """
         self.session_id = session_id
         self.deployment_name = azure_openai_deployment
+        self.agent_url = agent_url  # Store agent URL for A2A server
         
         logger.info(f"Initializing BRD Generator Agent for session: {session_id}")
+        logger.info(f"Agent URL: {agent_url}")
         
         # 1. Initialize Redis
         self.redis_client = self._init_redis(redis_url)
@@ -426,7 +461,7 @@ class BRDGeneratorAgent(AgentClass):
         return BaseAgentcard(
             name="BRD Generator Agent",
             description="Enterprise agent for generating comprehensive Business Requirements Documents from natural language descriptions",
-            url=getattr(self, 'agent_url', "http://localhost:8001"),
+            url=self.agent_url,
             version="1.0.0",
             skills=[skill],
             capabilities=capabilities,
@@ -443,13 +478,14 @@ class BRDGeneratorAgent(AgentClass):
         """Start A2A server
         
         Args:
-            host: Server host address
+            host: Server host address (bind address)
             port: Server port number
         """
         logger.info(f"Starting BRD Generator A2A Server on {host}:{port}")
         
-        # Store agent_url for agent card
-        self.agent_url = f"http://{host}:{port}"
+        # Use the agent_url from initialization (already set correctly)
+        # DON'T override with bind address (0.0.0.0 is not client-accessible)
+        logger.info(f"Agent URL for discovery: {self.agent_url}")
         
         agent_card = self.build_agent_card()
         self.server = self._launch_a2a_server(

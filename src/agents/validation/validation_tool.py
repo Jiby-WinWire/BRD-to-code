@@ -219,7 +219,7 @@ def create_validation_tool(llm, deployment_name: str, memory_manager=None):
     Returns:
         Async function ready for ToolClass wrapping
     """
-    from mylibs.agent_base.tools import ToolClass
+    from agent_base.tools import ToolClass
     
     async def tool_function(
         document_content: str, 
@@ -252,25 +252,7 @@ def create_validation_tool(llm, deployment_name: str, memory_manager=None):
         name="validate_document",
         description="Validate and analyze BRD or requirements documents for completeness, consistency, and clarity",
         func=tool_function,
-        input_schema={
-            "type": "object",
-            "properties": {
-                "document_content": {
-                    "type": "string",
-                    "description": "BRD or requirements document content to validate"
-                },
-                "document_type": {
-                    "type": "string",
-                    "description": "Type of document: brd, requirements, specification",
-                    "enum": ["brd", "requirements", "specification"]
-                },
-                "validation_scope": {
-                    "type": "string",
-                    "description": "Optional validation scope: completeness, consistency, clarity, all"
-                }
-            },
-            "required": ["document_content"]
-        }
-    )
+        args_schema=ValidationInput
+    ).get_tool()
     
     return tool

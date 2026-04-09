@@ -60,7 +60,7 @@ def create_jira_agent(session_id: str = None, agent_url: str = None) -> JiraToCo
     
     Args:
         session_id: Session identifier (generates UUID if not provided)
-        agent_url: Override agent URL (defaults to env var or localhost:8010)
+        agent_url: Override agent URL (defaults to env var or localhost:8005)
         
     Returns:
         Initialized JiraToCodeAgent
@@ -184,7 +184,7 @@ async def run_standalone_test():
         raise
 
 
-def start_a2a_server(port: int = 8010):
+def start_a2a_server(port: int = 8005):
     """Start A2A server for inter-agent communication
     
     Args:
@@ -192,8 +192,16 @@ def start_a2a_server(port: int = 8010):
     """
     logger.info(f"Starting Jira To Code A2A Server on port {port}")
     
-    # Create agent
-    agent = create_jira_agent()
+    # Determine agent URL based on environment or use localhost with specified port
+    agent_url = os.getenv('JIRA_TO_CODE_URL')
+    if not agent_url:
+        # Use localhost with the specified port (accessible by supervisor)
+        agent_url = f"http://localhost:{port}"
+    
+    logger.info(f"Agent URL for discovery: {agent_url}")
+    
+    # Create agent with proper agent_url
+    agent = create_jira_agent(agent_url=agent_url)
     
     # Start server using agent's built-in method
     agent.start(host="0.0.0.0", port=port)
@@ -212,8 +220,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--port',
         type=int,
-        default=8010,
-        help='Port for A2A server (default: 8010)'
+        default=8005,
+        help='Port for A2A server (default: 8005)'
     )
     
     args = parser.parse_args()

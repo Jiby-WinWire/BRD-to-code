@@ -15,7 +15,7 @@ from uuid import uuid4
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.agents.code_to_test.code_to_test_agent import CodeToTestAgent
+from src.agents.code_to_test_new.code_to_test_agent import CodeToTestAgent
 
 # Configure logging
 logging.basicConfig(
@@ -117,7 +117,7 @@ async def run_standalone_test():
         raise
 
 
-def start_a2a_server(port: int = 8002):
+def start_a2a_server(port: int = 8003):
     logger.info(f"Starting CodeToTest A2A Server on port {port}")
     agent = create_code_to_test_agent(agent_url=f"http://localhost:{port}")
     agent.start(host="0.0.0.0", port=port)
@@ -136,8 +136,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--port',
         type=int,
-        default=8002,
-        help='Port for A2A server (default: 8002)'
+        default=8003,
+        help='Port for A2A server (default: 8003)'
     )
     args = parser.parse_args()
     if args.mode == 'test':

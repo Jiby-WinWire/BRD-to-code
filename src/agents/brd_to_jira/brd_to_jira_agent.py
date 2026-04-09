@@ -50,20 +50,34 @@ class JiraTaskManager(InMemoryTaskManager):
         """
         logger.info(f"Received SendTaskRequest: {request.id}")
         task_id = request.id or str(uuid4())
+        # Safely get context_id from params
+        context_id = getattr(request.params, 'context_id', None) or str(uuid4())
         
         try:
-            # Extract BRD data from message
+            # Extract BRD data from message - handle dict and object formats
             brd_json = None
             if request.params and request.params.message:
-                for part in request.params.message.parts:
-                    if isinstance(part, TextPart):
+                parts = request.params.message.parts if hasattr(request.params.message, 'parts') else []
+                
+                if parts:
+                    first_part = parts[0]
+                    text_content = None
+                    
+                    if isinstance(first_part, dict):
+                        text_content = first_part.get('text', '')
+                    elif hasattr(first_part, 'root'):
+                        if hasattr(first_part.root, 'text'):
+                            text_content = first_part.root.text
+                    elif hasattr(first_part, 'text'):
+                        text_content = first_part.text
+                    
+                    if text_content:
                         # Try to parse as JSON
                         try:
-                            brd_json = json.loads(part.text)
+                            brd_json = json.loads(text_content)
                         except json.JSONDecodeError:
                             # If not JSON, treat as raw text
-                            brd_json = {"raw_text": part.text}
-                        break
+                            brd_json = {"raw_text": text_content}
             
             if not brd_json:
                 raise ValueError("No BRD content found in request")
@@ -104,8 +118,15 @@ class JiraTaskManager(InMemoryTaskManager):
             
             task = Task(
                 id=task_id,
-                status=TaskStatus.COMPLETED,
-                message=Message(parts=[TextPart(text=response_text)])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="completed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=response_text)]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -124,8 +145,15 @@ class JiraTaskManager(InMemoryTaskManager):
             # Return failed task
             task = Task(
                 id=task_id,
-                status=TaskStatus.FAILED,
-                message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="failed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=f"Error: {str(e)}")]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -173,6 +201,7 @@ class BRDToJiraAgent(AgentClass):
         """
         self.session_id = session_id
         self.deployment_name = azure_openai_deployment
+        self.agent_url = agent_url  # Store agent URL for A2A server
         self.jira_config = {
             'server_url': jira_server_url,
             'username': jira_username,
@@ -181,6 +210,7 @@ class BRDToJiraAgent(AgentClass):
         }
         
         logger.info(f"Initializing BRD to JIRA Agent for session: {session_id}")
+        logger.info(f"Agent URL: {agent_url}")
         
         # 1. Initialize Redis
         self.redis_client = self._init_redis(redis_url)
@@ -282,8 +312,27 @@ class BRDToJiraAgent(AgentClass):
             Dict with jira_tickets and metadata
         """
         logger.info(f"Generating JIRA tickets from BRD (task: {task_id})")
-        # Implementation will be in the tool
-        pass
+        
+        # Import the conversion function
+        from src.agents.brd_to_jira.brd_to_jira_tool import convert_brd_to_jira_function
+        
+        # Call the conversion function
+        result = await convert_brd_to_jira_function(
+            brd_json=brd_json,
+            llm=self.llm,
+            deployment_name=self.deployment_name,
+            memory_manager=self.memory_manager,
+            jira_config=self.jira_config,
+            include_acceptance_criteria=True
+        )
+        
+        # Format the response
+        import json
+        return {
+            "jira_tickets": [json.loads(t.json()) for t in result.jira_tickets],
+            "metadata": result.metadata,
+            "from_cache": result.from_cache
+        }
     
     async def convert_brd_to_jira(
         self,
@@ -300,3 +349,80 @@ class BRDToJiraAgent(AgentClass):
             Dict with converted JIRA tickets
         """
         return await self.generate_jira_tickets(brd_json=brd_json, task_id=task_id)
+    
+    def build_agent_card(self):
+        """Build agent card for A2A protocol"""
+        from agent_base.types import (
+            BaseAgentcard,
+            BaseAgentSkill,
+            BaseAgentCapabilities,
+            BaseAgentAuthentication,
+            AgentAccess
+        )
+        
+        skill = BaseAgentSkill(
+            id="convert_brd_to_jira",
+            name="BRD to JIRA Conversion",
+            description="Convert Business Requirements Documents to structured JIRA tickets with appropriate issue types, story points, and acceptance criteria.",
+            tags=["brd", "jira", "conversion", "requirements", "tickets"],
+            examples=[
+                "Convert this BRD to JIRA tickets",
+                "Generate JIRA stories from these requirements",
+                "Create JIRA tickets for this project"
+            ],
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "brd_json": {
+                        "type": "object",
+                        "description": "Business Requirements Document in JSON format"
+                    },
+                    "project_key": {
+                        "type": "string",
+                        "description": "JIRA project key"
+                    }
+                },
+                "required": ["brd_json"]
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "tickets": {
+                        "type": "array",
+                        "description": "List of generated JIRA tickets"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Conversion summary"
+                    }
+                }
+            }
+        )
+        
+        return skill
+    
+    def start(self, host: str = "0.0.0.0", port: int = 8002):
+        """Start A2A server
+        
+        Args:
+            host: Server host address (bind address)
+            port: Server port number
+        """
+        logger.info(f"Starting BRD to JIRA A2A Server on {host}:{port}")
+        
+        # Use the agent_url from initialization (already set correctly)
+        # DON'T override with bind address (0.0.0.0 is not client-accessible)
+        logger.info(f"Agent URL for discovery: {self.agent_url}")
+        
+        agent_card = self.build_agent_card()
+        self.server = self._launch_a2a_server(
+            port=port,
+            host=host,
+            plugin_type="agent",
+            include_query_handler=False,
+            agent_card=agent_card,
+            task_manager=self.task_manager,
+            agent_url=self.agent_url
+        )
+        logger.info(f"✅ A2A Server ready at {self.agent_url}")
+        self.server.start()

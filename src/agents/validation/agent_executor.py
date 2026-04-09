@@ -250,7 +250,7 @@ async def run_standalone_test():
         raise
 
 
-def start_a2a_server(port: int = 8002):
+def start_a2a_server(port: int = 8004):
     """Start A2A server for inter-agent communication
     
     Args:
@@ -258,8 +258,16 @@ def start_a2a_server(port: int = 8002):
     """
     logger.info(f"Starting Validation A2A Server on port {port}")
     
-    # Create agent
-    agent = create_validation_agent()
+    # Determine agent URL based on environment or use localhost with specified port
+    agent_url = os.getenv('VALIDATION_AGENT_URL')
+    if not agent_url:
+        # Use localhost with the specified port (accessible by supervisor)
+        agent_url = f"http://localhost:{port}"
+    
+    logger.info(f"Agent URL for discovery: {agent_url}")
+    
+    # Create agent with proper agent_url
+    agent = create_validation_agent(agent_url=agent_url)
     
     # Start server using agent's built-in method
     agent.start(host="0.0.0.0", port=port)
@@ -278,8 +286,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '--port',
         type=int,
-        default=8002,
-        help='Port for A2A server (default: 8002)'
+        default=8004,
+        help='Port for A2A server (default: 8004)'
     )
     
     args = parser.parse_args()

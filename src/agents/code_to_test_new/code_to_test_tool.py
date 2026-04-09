@@ -12,8 +12,15 @@ from pydantic import BaseModel, Field
 from agent_base.tools import ToolClass
 from typing import Optional
 
-from test_generator import code_to_pytest_tests
-from story_to_code import stories_to_fastapi_code
+import sys
+from pathlib import Path
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from story_to_code import stories_to_fastapi_code, code_to_pytest_tests
 
 logger = logging.getLogger(__name__)
 

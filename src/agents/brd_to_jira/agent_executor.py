@@ -17,7 +17,7 @@ from uuid import uuid4
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.agents.brd_to_jira.brd_to_jira_agent_standalone import BRDToJiraAgent
+from src.agents.brd_to_jira.brd_to_jira_agent import BRDToJiraAgent
 
 # Try to import FastAPI for server mode
 try:
@@ -188,31 +188,27 @@ async def main():
         sys.exit(1)
 
 
-def start_server(host: str = "0.0.0.0", port: int = 8002):
-    """Start FastAPI server for BRD to JIRA Agent
+def start_a2a_server(port: int = 8002):
+    """Start A2A server for inter-agent communication
     
     Args:
-        host: Server host (default: 0.0.0.0)
-        port: Server port (default: 8002)
+        port: Server port number
     """
-    global agent_instance
+    logger.info(f"Starting BRD to JIRA A2A Server on port {port}")
     
-    if not HAS_FASTAPI:
-        logger.error("FastAPI not available. Install with: pip install fastapi uvicorn")
-        sys.exit(1)
+    # Determine agent URL based on environment or use localhost with specified port
+    agent_url = os.getenv('BRD_TO_JIRA_URL')
+    if not agent_url:
+        # Use localhost with the specified port (accessible by supervisor)
+        agent_url = f"http://localhost:{port}"
     
-    # Initialize agent
-    agent_instance = create_brd_to_jira_agent()
+    logger.info(f"Agent URL for discovery: {agent_url}")
     
-    # Setup endpoints
-    setup_api_endpoints()
+    # Create agent with proper agent_url
+    agent = create_brd_to_jira_agent(agent_url=agent_url)
     
-    logger.info(f"🚀 Starting BRD to JIRA Agent Server on {host}:{port}")
-    logger.info(f"📚 API Docs: http://{host}:{port}/docs")
-    logger.info(f"🔄 ReDoc: http://{host}:{port}/redoc")
-    
-    # Start server
-    uvicorn.run(app, host=host, port=port)
+    # Start server using agent's built-in method
+    agent.start(host="0.0.0.0", port=port)
 
 
 def setup_api_endpoints():
@@ -393,6 +389,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     elif args.mode == 'server':
         logger.info("Running in SERVER mode")
-        start_server(host=args.host, port=args.port)
+        start_a2a_server(port=args.port)
     else:
         asyncio.run(main())

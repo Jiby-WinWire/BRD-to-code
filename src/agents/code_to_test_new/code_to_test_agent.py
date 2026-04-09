@@ -12,9 +12,9 @@ from langchain_openai import AzureChatOpenAI
 
 from agent_base.agent import AgentClass
 from agent_base import InMemoryTaskManager, SendTaskRequest, SendTaskResponse
-from src.agents.code_to_test.code_to_test_tool import create_code_to_test_tool
-from src.agents.code_to_test.memory_manager import CodeToTestMemoryManager, CodeToTestAgentStatus
-from src.agents.code_to_test.policy_manager import PolicyManager
+from src.agents.code_to_test_new.code_to_test_tool import create_code_to_test_tool
+from src.agents.code_to_test_new.memory_manager import CodeToTestMemoryManager, CodeToTestAgentStatus
+from src.agents.code_to_test_new.policy_manager import PolicyManager
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +31,9 @@ class CodeToTestTaskManager(InMemoryTaskManager):
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         logger.info(f"Received SendTaskRequest: {request.id}")
         task_id = request.id or str(uuid4())
+        
+        # Extract context_id safely - supervisor may send it or we generate one
+        context_id = getattr(request.params, 'context_id', None) or str(uuid4())
 
         status = CodeToTestAgentStatus(
             status="processing",
@@ -41,12 +44,19 @@ class CodeToTestTaskManager(InMemoryTaskManager):
         await self.agent.memory_manager.push_task_status(task_id, status)
 
         try:
+            # Robust message extraction - handle dict, object with .text, object with .root.text
             raw_text = None
             if request.params and request.params.message:
-                for part in request.params.message.parts:
-                    if isinstance(part, TextPart):
-                        raw_text = part.text
-                        break
+                parts = request.params.message.parts if hasattr(request.params.message, 'parts') else []
+                if parts:
+                    first_part = parts[0]
+                    if isinstance(first_part, dict):
+                        raw_text = first_part.get('text', '')
+                    elif hasattr(first_part, 'root'):
+                        if hasattr(first_part.root, 'text'):
+                            raw_text = first_part.root.text
+                    elif hasattr(first_part, 'text'):
+                        raw_text = first_part.text
 
             if not raw_text:
                 raise ValueError("SendTaskRequest did not contain any text payload")
@@ -81,8 +91,15 @@ class CodeToTestTaskManager(InMemoryTaskManager):
 
                     task = Task(
                         id=task_id,
-                        status=TaskStatus.FAILED,
-                        message=Message(parts=[TextPart(text=error_msg)])
+                        context_id=context_id,
+                        status=TaskStatus(
+                            state="failed",
+                            message=Message(
+                                message_id=str(uuid4()),
+                                role="agent",
+                                parts=[TextPart(text=error_msg)]
+                            )
+                        )
                     )
                     return SendTaskResponse(id=request.id, result=task)
 
@@ -99,16 +116,30 @@ class CodeToTestTaskManager(InMemoryTaskManager):
             status.end_time = datetime.utcnow().isoformat()
             await self.agent.memory_manager.push_task_status(task_id, status)
 
+            # PHASE 3: Return actual file contents, not just file names
             response_text = json.dumps({
-                "generated_code_files": list(result["code_files"].keys()),
-                "generated_test_files": list(result["test_files"].keys()),
-                "note": result.get("note", "Code generation completed")
+                "code_files": result["code_files"],  # Full file contents: {path: content}
+                "test_files": result["test_files"],  # Full file contents: {path: content}
+                "note": result.get("note", "Code generation completed"),
+                "summary": {
+                    "code_count": len(result["code_files"]),
+                    "test_count": len(result["test_files"]),
+                    "code_paths": list(result["code_files"].keys()),
+                    "test_paths": list(result["test_files"].keys())
+                }
             }, indent=2)
 
             task = Task(
                 id=task_id,
-                status=TaskStatus.COMPLETED,
-                message=Message(parts=[TextPart(text=response_text)])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="completed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=response_text)]
+                    )
+                )
             )
             return SendTaskResponse(id=request.id, result=task)
 
@@ -123,8 +154,15 @@ class CodeToTestTaskManager(InMemoryTaskManager):
 
             task = Task(
                 id=task_id,
-                status=TaskStatus.FAILED,
-                message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="failed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=f"Error: {str(e)}")]
+                    )
+                )
             )
             return SendTaskResponse(id=request.id, result=task)
 
@@ -239,7 +277,7 @@ class CodeToTestAgent(AgentClass):
         task_id: Optional[str] = None
     ) -> Dict[str, Any]:
         logger.info("Invoking code-to-test generation workflow")
-        from src.agents.code_to_test.code_to_test_tool import generate_code_and_tests_function
+        from src.agents.code_to_test_new.code_to_test_tool import generate_code_and_tests_function
 
         output = await generate_code_and_tests_function(
             stories=stories,

@@ -82,9 +82,16 @@ class JiraTaskManager(InMemoryTaskManager):
                     
                     for part in parts:
                         logger.debug(f"Part type: {type(part)}, content: {part}")
-                        if isinstance(part, TextPart):
+                        # Handle nested Part(root=TextPart(...)) structure
+                        if hasattr(part, 'root'):
+                            text_part = part.root
+                            if hasattr(text_part, 'text'):
+                                user_query = text_part.text
+                                logger.info(f"Extracted text from nested part: {user_query[:50]}...")
+                                break
+                        elif isinstance(part, TextPart):
                             user_query = part.text
-                            logger.info(f"Extracted text from part: {user_query[:50]}...")
+                            logger.info(f"Extracted text from TextPart: {user_query[:50]}...")
                             break
                         elif hasattr(part, 'text'):
                             user_query = part.text
@@ -105,6 +112,9 @@ class JiraTaskManager(InMemoryTaskManager):
             
             logger.info(f"Code generation completed for task: {task_id}")
             
+            # Extract context_id from request
+            context_id = getattr(request.params, 'context_id', None) or str(uuid4())
+            
             # Create response message
             response_text = (
                 f"Code Generated Successfully!\n\n"
@@ -114,8 +124,15 @@ class JiraTaskManager(InMemoryTaskManager):
             
             task = Task(
                 id=task_id,
-                status=TaskStatus.COMPLETED,
-                message=Message(parts=[TextPart(text=response_text)])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="completed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=response_text)]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -123,21 +140,22 @@ class JiraTaskManager(InMemoryTaskManager):
         except Exception as e:
             logger.error(f"Task processing failed: {str(e)}", exc_info=True)
             
-            try:
-                # Return failed task
-                task = Task(
-                    id=task_id,
-                    status=TaskStatus.FAILED,
-                    message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
+            # Extract context_id from request
+            context_id = getattr(request.params, 'context_id', None) or str(uuid4())
+            
+            # Return failed task
+            task = Task(
+                id=task_id,
+                context_id=context_id,
+                status=TaskStatus(
+                    state="failed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=f"Error: {str(e)}")]
+                    )
                 )
-            except Exception as enum_error:
-                logger.warning(f"TaskStatus.FAILED not available, using COMPLETED: {enum_error}")
-                # Fallback: use COMPLETED status with error message
-                task = Task(
-                    id=task_id,
-                    status=TaskStatus.COMPLETED,
-                    message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
-                )
+            )
             
             return SendTaskResponse(id=request.id, result=task)
 
@@ -159,7 +177,7 @@ class JiraToCodeAgent(AgentClass):
         azure_openai_api_version: str = "2023-05-15",
         discovery_url: Optional[str] = None,
         client_id: str = "jira-to-code-client",
-        agent_url: str = "http://localhost:8010",
+        agent_url: str = "http://localhost:8005",
         enable_policy: bool = False
     ):
         """Initialize Jira To Code Agent
@@ -178,8 +196,10 @@ class JiraToCodeAgent(AgentClass):
         """
         self.session_id = session_id
         self.deployment_name = azure_openai_deployment
+        self.agent_url = agent_url  # Store agent URL for A2A server
         
         logger.info(f"Initializing Jira To Code Agent for session: {session_id}")
+        logger.info(f"Agent URL: {agent_url}")
         
         # 1. Initialize Redis
         self.redis_client = self._init_redis(redis_url)
@@ -383,7 +403,7 @@ class JiraToCodeAgent(AgentClass):
         return BaseAgentcard(
             name="Jira To Code Agent",
             description="Converts Jira issue descriptions into starter code snippets and implementation notes",
-            url=getattr(self, 'agent_url', "http://localhost:8010"),
+            url=getattr(self, 'agent_url', "http://localhost:8005"),
             version="1.0.0",
             skills=[skill],
             capabilities=capabilities,
@@ -396,17 +416,18 @@ class JiraToCodeAgent(AgentClass):
             owner_email="jira-to-code@winwire.com"
         )
     
-    def start(self, host: str = "0.0.0.0", port: int = 8010):
+    def start(self, host: str = "0.0.0.0", port: int = 8005):
         """Start A2A server
         
         Args:
-            host: Server host address
+            host: Server host address (bind address)
             port: Server port number
         """
         logger.info(f"Starting Jira To Code A2A Server on {host}:{port}")
         
-        # Store agent_url for agent card
-        self.agent_url = f"http://{host}:{port}"
+        # Use the agent_url from initialization (already set correctly)
+        # DON'T override with bind address (0.0.0.0 is not client-accessible)
+        logger.info(f"Agent URL for discovery: {self.agent_url}")
         
         agent_card = self.build_agent_card()
         self.server = self._launch_a2a_server(

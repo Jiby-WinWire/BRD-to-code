@@ -89,7 +89,10 @@ async def convert_brd_to_jira_function(
     # Check cache first if memory manager is available
     if memory_manager:
         try:
-            cache_key = f"brd_to_jira:{task_id}"
+            # Create content-aware cache key to avoid returning wrong cached results
+            import hashlib
+            brd_hash = hashlib.md5(json.dumps(brd_json, sort_keys=True).encode()).hexdigest()
+            cache_key = f"brd_to_jira:{brd_hash}"
             cached = await memory_manager.get_cached_conversion(cache_key)
             if cached:
                 logger.info("Conversion retrieved from cache!")
@@ -165,10 +168,12 @@ async def convert_brd_to_jira_function(
             )
             jira_tickets.append(ticket)
         
-        # Cache the result
+        # Cache the result (use content hash for cache key)
         if memory_manager:
             try:
-                cache_key = f"brd_to_jira:{task_id}"
+                import hashlib
+                brd_hash = hashlib.md5(json.dumps(brd_json, sort_keys=True).encode()).hexdigest()
+                cache_key = f"brd_to_jira:{brd_hash}"
                 cache_data = {
                     "jira_tickets": [json.loads(t.json()) for t in jira_tickets],
                     "metadata": {
@@ -178,7 +183,7 @@ async def convert_brd_to_jira_function(
                     }
                 }
                 await memory_manager.cache_conversion(cache_key, cache_data)
-                logger.info(f"Conversion cached for task: {task_id}")
+                logger.info(f"Conversion cached with content hash: {brd_hash[:8]}...")
             except Exception as e:
                 logger.warning(f"Failed to cache conversion: {str(e)}")
         

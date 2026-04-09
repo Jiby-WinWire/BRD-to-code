@@ -202,8 +202,16 @@ def start_a2a_server(port: int = 8001):
     """
     logger.info(f"Starting BRD Generator A2A Server on port {port}")
     
-    # Create agent
-    agent = create_brd_agent()
+    # Determine agent URL based on environment or use localhost with specified port
+    agent_url = os.getenv('BRD_GENERATOR_URL')
+    if not agent_url:
+        # Use localhost with the specified port (accessible by supervisor)
+        agent_url = f"http://localhost:{port}"
+    
+    logger.info(f"Agent URL for discovery: {agent_url}")
+    
+    # Create agent with proper agent_url
+    agent = create_brd_agent(agent_url=agent_url)
     
     # Start server using agent's built-in method
     agent.start(host="0.0.0.0", port=port)

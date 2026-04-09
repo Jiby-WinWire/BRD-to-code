@@ -52,15 +52,24 @@ class ValidationTaskManager(InMemoryTaskManager):
         """
         logger.info(f"Received SendTaskRequest: {request.id}")
         task_id = request.id or str(uuid4())
+        # Safely get context_id from params
+        context_id = getattr(request.params, 'context_id', None) or str(uuid4())
         
         try:
-            # Extract document content from message
+            # Extract document content from message - handle dict and object formats
             document_content = None
             if request.params and request.params.message:
-                for part in request.params.message.parts:
-                    if isinstance(part, TextPart):
-                        document_content = part.text
-                        break
+                parts = request.params.message.parts if hasattr(request.params.message, 'parts') else []
+                
+                if parts:
+                    first_part = parts[0]
+                    if isinstance(first_part, dict):
+                        document_content = first_part.get('text', '')
+                    elif hasattr(first_part, 'root'):
+                        if hasattr(first_part.root, 'text'):
+                            document_content = first_part.root.text
+                    elif hasattr(first_part, 'text'):
+                        document_content = first_part.text
             
             if not document_content:
                 raise ValueError("No document content found in request")
@@ -102,8 +111,15 @@ class ValidationTaskManager(InMemoryTaskManager):
                     # Return failed task
                     task = Task(
                         id=task_id,
-                        status=TaskStatus.FAILED,
-                        message=Message(parts=[TextPart(text=error_msg)])
+                        context_id=context_id,
+                        status=TaskStatus(
+                            state="failed",
+                            message=Message(
+                                message_id=str(uuid4()),
+                                role="agent",
+                                parts=[TextPart(text=error_msg)]
+                            )
+                        )
                     )
                     return SendTaskResponse(id=request.id, result=task)
             
@@ -140,8 +156,15 @@ class ValidationTaskManager(InMemoryTaskManager):
             
             task = Task(
                 id=task_id,
-                status=TaskStatus.COMPLETED,
-                message=Message(parts=[TextPart(text=response_text)])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="completed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=response_text)]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -163,8 +186,15 @@ class ValidationTaskManager(InMemoryTaskManager):
             # Return failed task
             task = Task(
                 id=task_id,
-                status=TaskStatus.FAILED,
-                message=Message(parts=[TextPart(text=f"Error: {str(e)}")])
+                context_id=context_id,
+                status=TaskStatus(
+                    state="failed",
+                    message=Message(
+                        message_id=str(uuid4()),
+                        role="agent",
+                        parts=[TextPart(text=f"Error: {str(e)}")]
+                    )
+                )
             )
             
             return SendTaskResponse(id=request.id, result=task)
@@ -221,8 +251,10 @@ class ValidationAgent(AgentClass):
         """
         self.session_id = session_id
         self.deployment_name = azure_openai_deployment
+        self.agent_url = agent_url  # Store agent URL for A2A server
         
         logger.info(f"Initializing Validation Agent for session: {session_id}")
+        logger.info(f"Agent URL: {agent_url}")
         
         # 1. Initialize Redis
         self.redis_client = self._init_redis(redis_url)
@@ -452,3 +484,29 @@ class ValidationAgent(AgentClass):
         )
         
         return skill
+    
+    def start(self, host: str = "0.0.0.0", port: int = 8004):
+        """Start A2A server
+        
+        Args:
+            host: Server host address (bind address)
+            port: Server port number
+        """
+        logger.info(f"Starting Validation A2A Server on {host}:{port}")
+        
+        # Use the agent_url from initialization (already set correctly)
+        # DON'T override with bind address (0.0.0.0 is not client-accessible)
+        logger.info(f"Agent URL for discovery: {self.agent_url}")
+        
+        agent_card = self.build_agent_card()
+        self.server = self._launch_a2a_server(
+            port=port,
+            host=host,
+            plugin_type="agent",
+            include_query_handler=False,
+            agent_card=agent_card,
+            task_manager=self.task_manager,
+            agent_url=self.agent_url
+        )
+        logger.info(f"✅ A2A Server ready at {self.agent_url}")
+        self.server.start()
