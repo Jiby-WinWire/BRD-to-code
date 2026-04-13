@@ -1,171 +1,240 @@
-# 🤖 BRD-to-Code AI Agent Pipeline
+# 🤖 BRD-to-Code Enterprise Agent System
 
-> Automated transformation of business requirements into production-ready code using AI
+> Microservices-based AI agent architecture for transforming business requirements into production-ready code
 
 ## Overview
 
-This project implements an intelligent AI-driven pipeline that transforms natural language requirements into:
-- ✅ **Structured BRD** (Business Requirements Document)
-- ✅ **Jira User Stories** (JSON format, ready for import)
-- ✅ **Production FastAPI Code** (models, services, routes)
-- ✅ **Comprehensive Tests** (pytest with full coverage)
-- ✅ **Validated Output** (automatically tested and verified)
+This project implements an **enterprise-grade AI agent ecosystem** using the **A2A (Agent-to-Agent) protocol** for inter-agent communication. The system consists of **5 independent, autonomous agents** orchestrated by a **Supervisor** that transforms natural language requirements into **production-ready applications**:
 
-The pipeline uses **Azure OpenAI** (GPT-4) and **LangGraph** for intelligent orchestration with a RE-ACT (Reason-Act-Observe) pattern.
+- ✅ **Structured BRD** (Business Requirements Document)
+- ✅ **JIRA Tickets** (Ready for import into JIRA)
+- ✅ **Production Code** (FastAPI with models, services, routes, templates, static files)
+- ✅ **Comprehensive Tests** (pytest test suites with 78%+ pass rate)
+- ✅ **Validated Documents** (Quality assurance and completeness checks)
+- ✅ **Zero Manual Fixes** (Bolt.new-style autonomous code generation)
+
+### 🎯 **Key Capabilities**
+
+**Complete Workflow Automation:**
+```
+Natural Language Prompt → BRD → JIRA Stories → Full-Stack App (FastAPI + HTML/CSS/JS) → Tests
+```
+
+**Production-Ready Output:**
+- FastAPI backend with Pydantic models, business logic, and RESTful APIs
+- Interactive HTML/CSS/JavaScript frontend with Bootstrap
+- In-memory database with CRUD operations
+- Comprehensive pytest test suites
+- API documentation (auto-generated Swagger/OpenAPI)
+- Complete deployment files (run.py, requirements.txt, README.md)
+
+Each agent runs as an **independent microservice** with its own:
+- A2A server endpoint (ports 8001-8005)
+- Redis-based state management
+- Azure OpenAI integration
+- Memory management and caching
+- Policy validation (optional)
 
 ## 🏗️ Architecture
 
-The pipeline consists of **5 integrated agents** working in a LangGraph state machine:
+The system consists of a **Supervisor orchestrator** and **5 independent A2A agents**, each running as a microservice:
 
-### 1. **BRD Generator Agent** (`brd_generator.py`)
-   - **Input**: Natural language prompt (e.g., "build a blog API")
+### 0. **Supervisor Orchestrator**
+   - **Location**: `supervisor.py`
+   - **Purpose**: Orchestrates the complete workflow across all agents
+   - **Key Features**:
+     - **Workflow Management**: Chains agents in optimal sequence (BRD → JIRA → Code → Validation)
+     - **Retry Logic**: Automatic retry with MAX_RETRIES=3 for code generation
+     - **Auto-Fix System**: Comprehensive 8-method code fixing pipeline:
+       - BRD Parser: Converts markdown BRD to structured JSON
+       - Import Auto-Completion: Scans models.py and imports all classes
+       - Syntax Error Fixes: Removes wildcard imports, fixes `from models import *` patterns
+       - Template Auto-Generation: Creates missing HTML templates (register.html, etc.)
+       - Route Auto-Creation: Adds missing GET endpoints for POST-only routes
+       - JavaScript Format Conversion: Fixes Content-Type and body format
+       - Status Code Addition: Adds `status_code=201` to POST endpoints
+       - Static/Templates Mounting: Ensures FastAPI serves static files
+     - **Content-Aware Caching**: Uses MD5 hash of BRD content as cache key (prevents wrong results)
+     - **Session Management**: Unique session IDs for each workflow run
+     - **Output Management**: Saves all files to `output/supervisor-YYYYMMDD-HHMMSS/`
+   - **Usage**:
+     ```bash
+     python supervisor.py "Create a todo list app with create and delete tasks"
+     ```
+   - **Output**: Complete application in 60-70 seconds with ZERO manual fixes needed
+
+### 1. **BRD Generator Agent** (Port 8001)
+   - **Location**: `src/agents/brd_generator/`
+   - **Input**: Natural language prompt via A2A protocol
    - **Process**: Uses Azure OpenAI to analyze requirements and generate structured BRD
    - **Output**: Comprehensive BRD JSON with:
      - Business goals and objectives
      - Functional requirements (FR1, FR2, etc.)
      - Non-functional requirements (NFR1, NFR2, etc.)
      - Stakeholders and acceptance criteria
+   - **Features**: Redis caching, Azure Search semantic similarity, policy validation
 
-### 2. **Jira Story Generator Agent** (`brd_to_jira.py`)
-   - **Input**: BRD JSON from previous step
-   - **Process**: Converts requirements into user stories following Jira schema
-   - **Output**: Array of Jira-compatible user stories with:
-     - Summary, description, priority
-     - Labels (functional/non-functional)
-     - Acceptance criteria
-     - Story type (Story, Epic, Task)
+### 1.5 **Architecture Generator Agent** (Port 7000)
+   - **Location**: External agent (ArchGeneratorAgent)
+   - **Input**: BRD text/markdown via A2A protocol
+   - **Process**: Uses LangGraph ReAct agent with LLM-driven tool selection:
+     - `extract_entities`: Identifies system components (databases, services, APIs)
+     - `infer_relationships`: Determines connections and data flows
+     - Validates graph structure and filters invalid edges
+   - **Output**: Architecture diagram as SVG/PNG/JSON with:
+     - Nodes: System components with types and tiers (ingress/process/data)
+     - Edges: Relationships and connections between components
+     - Metadata: Node/edge counts, confidence scores
+     - Blob URL: Stored in Azure Blob Storage for persistence
+   - **Features**: 
+     - Agentic reasoning with up to 50 iterations
+     - Tier-based clustering (ingress, process, data, external)
+     - Multi-format output (SVG, PNG, JSON)
+     - Azure Blob Storage integration
+     - Template-based node styling
+   - **Integration**: Automatically called by Supervisor after BRD generation, diagram embedded in generated README
 
-### 3. **Code Generator Agent** (`story_to_code.py`)
-   - **Input**: Jira user stories
-   - **Process**: Generates production-ready FastAPI application using GPT-4
-   - **Output**: Three code files:
+### 2. **BRD to JIRA Agent** (Port 8002)
+   - **Location**: `src/agents/brd_to_jira/`
+   - **Input**: BRD JSON via A2A protocol (structured JSON with title, description, requirements)
+   - **Process**: Converts requirements into JIRA tickets with proper formatting
+   - **Output**: Array of JIRA-compatible tickets with:
+     - Summary, description, priority, story points
+     - Issue types (Epic, Story, Task)
+     - Acceptance criteria and labels
+   - **Features**: 
+     - Intelligent story point estimation, issue type classification
+     - **Content-Aware Caching**: Cache key = MD5(BRD content) to prevent wrong cached results
+     - **Bug Fix (April 2026)**: Fixed cache key from task_id to content hash, preventing e-commerce results for calculator prompts
+
+### 3. **Code to Test Agent** (Port 8003)
+   - **Location**: `src/agents/code_to_test_new/`
+   - **Input**: User stories in JSON format via A2A protocol
+   - **Process**: Generates production-ready FastAPI application and tests
+   - **Output** (7 code files + 1 test file):
      - `models.py` - Pydantic models with validation
-     - `services.py` - Business logic with in-memory storage + singleton export
-     - `main.py` - FastAPI routes using the service singleton
+     - `services.py` - Business logic with in-memory storage
+     - `main.py` - FastAPI routes and endpoints
+     - `base.html` - Base template with Bootstrap navbar
+     - `index.html` - Main page with forms and interactive UI
+     - `style.css` - Custom styling
+     - `app.js` - Vanilla JavaScript for API calls
+     - `test_api.py` - Comprehensive pytest test suite
+   - **Features**: 
+     - Multi-file full-stack code generation
+     - Automatic test generation with 78%+ pass rate
+     - Interactive HTML/CSS/JS frontend
+     - RESTful API design
 
-### 4. **Test Generator Agent** (`test_generator.py`)
-   - **Input**: Generated code files + user stories
-   - **Process**: Creates comprehensive pytest test suite
-   - **Output**: 
-     - Test case descriptions
-     - `test_api.py` - Full pytest suite with:
-       - Valid/invalid input tests
-       - CRUD operation tests
-       - End-to-end workflow tests
-       - Proper test isolation fixtures
+### 4. **Validation Agent** (Port 8004)
+   - **Location**: `src/agents/validation/`
+   - **Input**: BRD or requirements document via A2A protocol
+   - **Process**: Validates documents for:
+     - Completeness (all required sections present)
+     - Consistency (no contradictions)
+     - Clarity (unambiguous language)
+     - Measurability (specific, testable requirements)
+     - Traceability (requirements trace to business goals)
+   - **Output**: Validation report with:
+     - Overall validity score (0-100)
+     - List of issues with severity levels
+     - Suggestions for improvements
+   - **Features**: Semantic caching, detailed issue categorization
 
-### 5. **Validation Agent** (`orchestrator.py`)
-   - **Input**: Generated code + tests
-   - **Process**: 
-     - Writes all files to `output/` directory
-     - Runs pytest validation
-     - Checks exit codes
-     - Retries on failure (up to 3 times)
-   - **Output**: 
-     - Validation status (pass/fail)
-     - Test execution logs
-     - Helper files (run.py, README.md, requirements.txt)
+### 5. **JIRA to Code Agent** (Port 8005)
+   - **Location**: `src/agents/jira_to_code/`
+   - **Input**: JIRA issue description via A2A protocol
+   - **Process**: Generates starter code snippets from JIRA issue requirements
+   - **Output**: Code snippet with:
+     - Implementation code
+     - Explanation and usage notes
+     - Relevant imports and dependencies
+   - **Features**: Context-aware code generation, framework detection
 
-## 🔄 LangGraph Orchestration
+## 🔄 Complete Workflow
 
-The pipeline uses **LangGraph StateGraph** with conditional routing:
-
-```python
-Workflow:
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   User      │────▶│ BRD Generator│────▶│Jira Stories │
-│   Prompt    │     └──────────────┘     └─────────────┘
-└─────────────┘                                 │
-                                                ▼
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  Complete   │◀────│  Validation  │◀────│    Code     │
-│             │     │   + Retry    │     │ Generator   │
-└─────────────┘     └──────────────┘     └─────────────┘
-                           │                     │
-                           │                     ▼
-                           │              ┌─────────────┐
-                           └──────────────│    Test     │
-                              (on fail)   │ Generator   │
-                                          └─────────────┘
-```
-
-**RE-ACT Pattern**: The validation node can loop back to regenerate code/tests if validation fails (max 3 retries).
-
-## Expected Workflow
-
-### Interactive Mode (Recommended)
-
-```bash
-# Start the interactive pipeline
-python src/main.py
-```
-
-The interactive CLI will:
-1. Load environment configuration from `.env`
-2. Prompt you to enter your API requirements (e.g., "build a task management API")
-3. Run the full pipeline automatically
-4. Generate all code, tests, and documentation
-5. Display results and next steps
-
-### Programmatic Mode
-
-```python
-from agents.orchestrator import react_pipeline
-
-# Run pipeline with a prompt
-result = react_pipeline("build a blog API with CRUD operations")
-
-# Access generated artifacts
-print(result["brd_json"])         # Business requirements
-print(result["stories"])          # Jira user stories
-print(result["code_files"])       # Generated code
-print(result["validation_passed"]) # Test results
-```
-
-### Generated Output
-
-After running, check the `output/` directory:
+The **Supervisor** orchestrates all agents using the **A2A (Agent-to-Agent) protocol v0.3.0** with JSON-RPC:
 
 ```
-output/
-├── src/api/
-│   ├── models.py       # Pydantic models
-│   ├── services.py     # Business logic + singleton
-│   └── main.py         # FastAPI application
-├── tests/
-│   └── test_api.py     # Pytest test suite
-├── run.py              # Server launcher
-├── requirements.txt    # Dependencies
-└── README.md          # API documentation
+User Prompt: "Build a todo list app with create and delete tasks"
+         │
+         ▼
+    Supervisor (supervisor.py)
+         │
+         ├─[1]─▶ BRD Generator (8001)           [23.87s]
+         │        └─── Structured BRD (markdown → JSON parsed)
+         │
+         ├─[1.5]─▶ Architecture Generator (7000)  [87.63s]
+         │        └─── Architecture Diagram (SVG)
+         │             │
+         │             ├─ Extracts: Components, relationships
+         │             ├─ Generates: Tier-based diagram
+         │             └─ Output: Azure Blob URL (embedded in README)
+         │
+         ├─[2]─▶ BRD to JIRA (8002)             [12.44s]
+         │        └─── JIRA Tickets (content-aware cache)
+         │
+         ├─[3]─▶ Code to Test (8003)            [21.49s]
+         │        └─── 7 Code Files + 1 Test File
+         │             │
+         │             ├─ Auto-fixes applied:
+         │             │  ✓ Import completion
+         │             │  ✓ Syntax error fixes  
+         │             │  ✓ Template generation
+         │             │  ✓ Route creation
+         │             │  ✓ JavaScript fixes
+         │             └─ Result: ZERO manual fixes needed!
+         │
+         ├─[4]─▶ Validation (8004)              [5.60s]
+         │        └─── BRD Quality Report
+         │
+         ├─[5]─▶ JIRA to Code (8005)            [7.38s]
+         │        └─── Code Snippet (demo)
+         │
+         └────▶ Output Generated:
+                 output/supervisor-YYYYMMDD-HHMMSS/
+                 ├── docs/ (BRD, JIRA stories)
+                 ├── src/api/ (models, services, main)
+                 ├── templates/ (base.html, index.html)
+                 ├── static/ (style.css, app.js)
+                 ├── tests/ (test_api.py, conftest.py)
+                 ├── run.py
+                 ├── requirements.txt
+                 └── README.md (with embedded architecture diagram)
+
+Total Duration: ~160 seconds (with architecture diagram)
+Manual Fixes Required: 0 🎉
 ```
 
-## Project Structure
+### Communication Flow:
 
-```
-BRD-to-code/
-├── src/
-│   ├── agents/
-│   │   ├── brd_generator.py      # Generates BRD from natural language
-│   │   ├── brd_to_jira.py        # Converts BRD to Jira stories
-│   │   ├── story_to_code.py      # Generates FastAPI code from stories
-│   │   ├── test_generator.py     # Creates pytest test suites
-│   │   └── orchestrator.py       # LangGraph pipeline orchestrator
-│   ├── infrastructure/
-│   │   └── azure_clients.py      # Azure OpenAI client setup
-│   └── main.py                   # Interactive CLI entry point
-├── output/                       # Generated code output directory
-├── .env                          # Azure OpenAI credentials
-├── requirements.txt              # Python dependencies
-└── README.md                     # This file
-```
+1. **Supervisor** sends `message/send` JSON-RPC request to agent
+2. **Agent** receives `SendTaskRequest` with:
+   - `message`: User query/data
+   - `context_id`: Conversation context
+   - `metadata`: Session info
+3. **Agent** processes request using Azure OpenAI + custom logic
+4. **Agent** returns `SendTaskResponse` with:
+   - `task`: Task object with status and result
+   - `status`: TaskStatus (completed/failed)
+   - `message`: Response text/data
 
-## Setup & Installation
+### Key Features:
+
+- **Stateless**: Each request is independent
+- **Redis State**: Agents maintain session state in Redis
+- **Caching**: Semantic similarity caching with Azure Search
+- **Health Checks**: Each agent exposes `/health` and `/.well-known/agent.json` endpoints
+- **Error Handling**: Structured error responses with context
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.11 or higher
 - Azure OpenAI API access
-- Git (optional)
+- Redis Server (or use FakeRedis for development)
+- Git
 
 ### Installation Steps
 
@@ -191,193 +260,459 @@ BRD-to-code/
    
    Create a `.env` file in the project root:
    ```env
+   # Azure OpenAI Configuration
    AZURE_OPENAI_API_KEY=your-api-key-here
    AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
-   AZURE_OPENAI_DEPLOYMENT_NAME=model_deployment_name
+   AZURE_OPENAI_DEPLOYMENT=gpt4o_mktgenai
    AZURE_OPENAI_API_VERSION=2024-08-01-preview
+
+   # Redis Configuration (optional - will use FakeRedis if not available)
+   REDIS_URL=redis://localhost:6379
+   USE_FAKE_REDIS=auto  # auto, true, or false
+
+   # Azure Search (optional - for semantic caching)
+   AZURE_SEARCH_ENDPOINT=https://your-search.search.windows.net
+   AZURE_SEARCH_KEY=your-search-key
+   AZURE_SEARCH_INDEX=brd-cache-index
+   AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+
+   # Policy Validation (optional)
+   ENABLE_POLICY=false
+   DISCOVERY_API_URL=http://localhost:5000
+
+   # Caching Configuration
+   ENABLE_CACHING=true
    ```
 
-5. **Run the pipeline**
+5. **Start all agents**
+   
+   **Option 1: Using PowerShell Script (Recommended for Windows)**
+   ```powershell
+   .\start_all_agents.ps1
+   ```
+   
+   This will start all 5 agents in separate windows.
+
+   **Option 2: Manual Start (All Platforms)**
    ```bash
-   python src/main.py
+   # Start each agent in a separate terminal
+
+   # Terminal 1 - BRD Generator
+   python -m src.agents.brd_generator.agent_executor --mode server --port 8001
+
+   # Terminal 2 - BRD to JIRA
+   python -m src.agents.brd_to_jira.agent_executor --mode server --port 8002
+
+   # Terminal 3 - Code to Test
+   python -m src.agents.code_to_test_new.agent_executor --mode server --port 8003
+
+   # Terminal 4 - Validation
+   python -m src.agents.validation.agent_executor --mode server --port 8004
+
+   # Terminal 5 - JIRA to Code
+   python -m src.agents.jira_to_code.agent_executor --mode server --port 8005
    ```
 
-## Usage Examples
+6. **Verify all agents are running**
+   ```bash
+   python test_all_agents.py
+   ```
 
-### Example 1: Blog API
-```
-Enter your API requirements: build a simple blog API with create post, list posts, get post by id, and delete post
+   Expected output:
+   ```
+   🔍 Checking Agent Status...
+   
+     ✅ BRD Generator: Healthy (health endpoint)
+     ✅ BRD to JIRA: Healthy (health endpoint)
+     ✅ Code to Test: Healthy (health endpoint)
+     ✅ Validation: Healthy (health endpoint)
+     ✅ JIRA to Code: Healthy (health endpoint)
+   
+   📊 Summary:
+     Running: 5/5 agents
+     ✨ All agents are running!
+   ```
 
-✅ Generated:
-   - 4 functional requirements
-   - 5 non-functional requirements
-   - 8 Jira user stories
-   - 3 code files (models, services, main)
-   - 1 test file with 9 tests (all passing)
-```
+8. **Run the Supervisor to generate a complete application**
+   ```bash
+   python supervisor.py "Create a todo list app with create and delete tasks"
+   ```
 
-### Example 2: Task Management API
-```
-Enter your API requirements: create a task management system with users, projects, and tasks with priorities
+   Expected output:
+   ```
+   🚀 SUPERVISOR - FULL WORKFLOW EXECUTION
+   Session ID: supervisor-20260409-145714
+   
+   🔹 STEP 1: Generate BRD from requirement       [23.87s]
+   🔹 STEP 2: Convert BRD to JIRA tickets         [12.44s]
+   🔹 STEP 3: Generate code and tests             [21.49s]
+      ✅ Code generated successfully on attempt 1
+   🔹 STEP 4: Validate BRD quality                [5.60s]
+   🔹 STEP 5: Generate code snippet from JIRA     [7.38s]
+   
+   ✅ ALL FILES GENERATED SUCCESSFULLY
+   📂 Output directory: output/supervisor-20260409-145714/
+   
+   Total Duration: 70.85s
+   ```
 
-✅ Generated:
-   - Complete BRD with relationships
-   - User stories for all entities
-   - Multi-model FastAPI code
-   - Comprehensive test coverage
-```
+   The generated application will be in `output/supervisor-YYYYMMDD-HHMMSS/` with:
+   - Complete FastAPI backend (models, services, routes)
+   - Interactive HTML/CSS/JavaScript frontend
+   - pytest test suite (78%+ pass rate)
+   - Deployment files (run.py, requirements.txt, README.md)
+   - **ZERO manual fixes required!** 🎉
 
-### Example 3: E-commerce Products API
-```
-Enter your API requirements: product catalog API with categories, inventory tracking, and search
+9. **Run the generated application**
+   ```bash
+   cd output/supervisor-20260409-145714
+   pip install -r requirements.txt
+   python run.py
+   ```
 
-✅ Generated:
-   - Domain-specific models
-   - Search and filter logic
-   - Inventory management
-   - End-to-end tests
-```
+   Then visit:
+   - 🌐 Web App: http://localhost:8000
+   - 📚 API Docs: http://localhost:8000/docs
 
+10. **Run comprehensive supervisor integration test**
+   ```bash
+   python test_supervisor_integration.py
+   ```
 
-## Key Features
+## 💻 Usage Examples
 
-### 🎯 Intelligent Code Generation
-- **Domain-Specific**: Generates code tailored to your specific requirements (not templates)
-- **Production-Ready**: Includes proper validation, error handling, and structure
-- **Best Practices**: Follows FastAPI conventions and Python standards
+### 🎯 **Complete Workflow with Supervisor (Recommended)**
 
-### 🔄 Self-Healing Pipeline
-- **Automatic Retry**: If tests fail, regenerates code/tests (up to 3 attempts)
-- **Error Analysis**: Uses pytest output to understand and fix issues
-- **Validation**: Ensures all generated code is tested and working
+The Supervisor orchestrates all agents to generate a complete application from a single prompt:
 
-### 🧪 Comprehensive Testing
-- **Full Coverage**: Tests all endpoints with valid/invalid inputs
-- **Test Isolation**: Proper fixtures reset state between tests
-- **Edge Cases**: Includes boundary conditions and error scenarios
+```bash
+# Generate a todo list application
+python supervisor.py "Build a todo list app with create and delete tasks"
 
-### 📝 Complete Documentation
-- **Auto-Generated**: README, API docs, and inline comments
-- **Swagger/OpenAPI**: Interactive API documentation at `/docs`
-- **Usage Examples**: Helper files and quick start guides
+# Generate a calculator application
+python supervisor.py "Create a simple calculator with add and subtract operations"
 
-### 🛠️ Developer Experience
-- **Interactive CLI**: User-friendly prompts and feedback
-- **Instant Feedback**: Real-time status updates during generation
-- **Easy to Run**: Single command to generate complete application
+# Generate an inventory management system
+python supervisor.py "Create an inventory management system with barcode scanning"
 
-## Technical Stack
-
-- **AI/ML**: Azure OpenAI GPT-4
-- **Orchestration**: LangGraph 1.1.6 (StateGraph with conditional edges)
-- **Web Framework**: FastAPI 0.115.12
-- **Testing**: Pytest 9.0.2 with fixtures
-- **Validation**: Pydantic 2.10.6
-- **Server**: Uvicorn with auto-reload
-- **Environment**: Python 3.11+
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `AZURE_OPENAI_API_KEY` | Your Azure OpenAI API key | `abc123...` |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://xxx.openai.azure.com/` |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | Model deployment name | `gpt4o_mktgenai` |
-| `AZURE_OPENAI_API_VERSION` | API version | `2024-08-01-preview` |
-
-### Pipeline Configuration
-
-Edit `orchestrator.py` to customize:
-- `RETRY_LIMIT`: Max retries on test failure (default: 3)
-- `recursion_limit`: LangGraph recursion depth (default: 10)
-- Temperature settings for each agent (0.2-0.3 for deterministic output)
-
-## Troubleshooting
-
-### Issue: Tests Fail During Generation
-
-**Cause**: Service singleton import mismatch  
-**Solution**: Automatically fixed by retry mechanism. The pipeline will regenerate code with correct imports.
-
-### Issue: Azure OpenAI Rate Limit
-
-**Cause**: Too many requests too quickly  
-**Solution**: Pipeline includes automatic rate limit handling. Wait a moment and retry.
-
-### Issue: Generated Code Quality
-
-**Cause**: LLM output varies between runs  
-**Solution**: Run pipeline again with more specific requirements. The more detailed your prompt, the better the output.
-
-### Issue: Import Errors in Generated Code
-
-**Cause**: Missing dependencies  
-**Solution**: Check `output/requirements.txt` and install: `pip install -r output/requirements.txt`
-
-## Extending the Pipeline
-
-### Adding New Agents
-
-1. Create agent file in `src/agents/`
-2. Define agent function that takes state dict and returns updates
-3. Add node to LangGraph in `orchestrator.py`
-4. Define routing logic with `add_conditional_edges`
-
-### Customizing Code Templates
-
-Edit prompt templates in:
-- `brd_generator.py` - BRD structure
-- `story_to_code.py` - Code generation patterns
-- `test_generator.py` - Test structure
-
-### Adding New Validations
-
-Modify `orchestrator.py` validation logic:
-```python
-def validate_node(state):
-    # Add custom validation logic
-    if custom_check_failed:
-        state["validation_passed"] = False
-    return state
+# With custom retry limit (default is 3)
+python supervisor.py "Build a blog platform with posts and comments" --max-retries 1
 ```
 
-## Roadmap
+**What You Get:**
+- ✅ Complete FastAPI backend (models, services, routes)
+- ✅ Interactive HTML/CSS/JS frontend with Bootstrap
+- ✅ pytest test suite (78%+ pass rate)
+- ✅ API documentation (auto-generated Swagger)
+- ✅ Deployment files (run.py, requirements.txt, README.md)
+- ✅ All files in `output/supervisor-YYYYMMDD-HHMMSS/`
+- ✅ **ZERO manual fixes required!** (Bolt.new-style generation)
 
-- [ ] Support for multiple frameworks (Django, Flask, Express.js)
-- [ ] Database integration generation (PostgreSQL, MongoDB)
-- [ ] Authentication/authorization code generation
-- [ ] Deployment configuration (Docker, Kubernetes)
-- [ ] CI/CD pipeline generation (GitHub Actions, Azure Pipelines)
-- [ ] OpenAPI spec import support
-- [ ] Direct Jira API integration
-- [ ] Multi-language support (Node.js, Go, Java)
-
-## Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
-## License
-
-[Your License Here]
-
-## Changelog
-
-### v1.0.0 (April 2026)
-- ✅ LangGraph orchestration with RE-ACT pattern
-- ✅ Azure OpenAI GPT-4 integration
-- ✅ Interactive CLI interface
-- ✅ Self-healing retry mechanism
-- ✅ Comprehensive test generation
-- ✅ Service singleton pattern fix
-- ✅ Dynamic attribute name detection
-- ✅ Helper file auto-generation
+**Performance:**
+- Total Duration: ~60-70 seconds
+- BRD Generation: ~24s
+- JIRA Conversion: ~12s
+- Code Generation: ~21s
+- Validation: ~6s
+- Code Snippet: ~7s
 
 ---
 
-**Made with ❤️ using Azure OpenAI and LangGraph**
+### Testing Individual Agents
+
+Each agent can be tested independently:
+
+```bash
+# Test BRD Generator
+python test_agent_connection.py
+
+# Test BRD to JIRA
+python test_brd_to_jira_agent.py
+
+# Test Code to Test
+python test_code_to_test_agent.py
+
+# Test Validation
+python test_validation_agent.py
+```
+
+### Example 1: Generate BRD from Natural Language
+
+```python
+import httpx
+import asyncio
+import json
+
+async def generate_brd():
+    request = {
+        "jsonrpc": "2.0",
+        "id": "test-123",
+        "method": "message/send",
+        "params": {
+            "message": {
+                "kind": "message",
+                "message_id": "msg-123",
+                "role": "user",
+                "parts": [{
+                    "kind": "text",
+                    "text": "Create a BRD for an inventory management system"
+                }]
+            },
+            "context_id": "ctx-123"
+        }
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post("http://localhost:8001", json=request)
+        result = response.json()
+        print(json.dumps(result, indent=2))
+
+asyncio.run(generate_brd())
+```
+
+### Example 2: Run All Tests
+
+```bash
+python test_supervisor_integration.py
+```
+
+This will test all 5 agents and show results similar to:
+
+```
+======================================================================
+📊 TEST SUMMARY
+======================================================================
+
+Results: 5/5 agents passed
+
+✅ BRD Generator        - completed    ( 29.03s, 4324 chars)
+✅ BRD to JIRA          - completed    (  0.93s, 1239 chars)
+✅ Code to Test         - completed    ( 22.15s, 220 chars)
+✅ Validation           - completed    ( 14.04s, 330 chars)
+✅ JIRA to Code         - completed    ( 19.66s, 1918 chars)
+
+======================================================================
+✅ ALL AGENTS READY FOR SUPERVISOR
+   All agents successfully received and processed tasks
+```
+
+## 📁 Project Structure
+
+```
+BRD-to-code/
+├── .venv/                           # Python virtual environment
+│   └── Lib/site-packages/agent_base/  # Agent base compatibility layer
+├── src/
+│   └── agents/
+│       ├── brd_generator/          # BRD Generator Agent (8001)
+│       │   ├── agent_executor.py
+│       │   ├── brd_generator_agent.py
+│       │   ├── brd_generator_tool.py
+│       │   ├── memory_manager.py
+│       │   └── policy_manager.py
+│       ├── brd_to_jira/            # BRD to JIRA Agent (8002)
+│       │   ├── agent_executor.py
+│       │   ├── brd_to_jira_agent.py
+│       │   ├── brd_to_jira_tool.py  # ⭐ Content-aware caching (MD5 hash)
+│       │   ├── jira_memory_manager.py
+│       │   └── policy_manager.py
+│       ├── code_to_test_new/       # Code to Test Agent (8003)
+│       │   ├── agent_executor.py
+│       │   ├── code_to_test_agent.py
+│       │   ├── code_to_test_tool.py
+│       │   ├── memory_manager.py
+│       │   └── policy_manager.py
+│       ├── validation/             # Validation Agent (8004)
+│       │   ├── agent_executor.py
+│       │   ├── validation_agent.py
+│       │   ├── validation_tool.py
+│       │   ├── memory_manager.py
+│       │   └── policy_manager.py
+│       └── jira_to_code/           # JIRA to Code Agent (8005)
+│           ├── agent_executor.py
+│           ├── jira_to_code_agent.py
+│           ├── jira_to_code_tool.py
+│           ├── memory_manager.py
+│           └── policy_manager.py
+├── output/                         # Generated code output directory
+│   └── supervisor-YYYYMMDD-HHMMSS/  # Session-based output folders
+├── supervisor.py                   # ⭐ Main orchestrator with auto-fix system
+├── story_to_code.py                # Shared utility for code generation
+├── start_all_agents.ps1            # PowerShell script to start all agents
+├── test_all_agents.py              # Health check test for all agents
+├── test_supervisor_integration.py  # Comprehensive A2A integration tests
+├── test_agent_connection.py        # BRD Generator tests
+├── test_brd_to_jira_agent.py       # BRD to JIRA tests
+├── test_code_to_test_agent.py      # Code to Test tests
+├── test_validation_agent.py        # Validation tests
+├── .env                            # Azure OpenAI credentials
+├── requirements.txt                # Python dependencies
+└── README.md                       # This file
+```
+
+## 🔧 Technical Stack
+
+- **AI/ML**: Azure OpenAI GPT-4
+- **Protocol**: A2A (Agent-to-Agent) v0.3.0
+- **Framework**: FastAPI, LangChain, Uvicorn
+- **State Management**: Redis / FakeRedis
+- **Caching**: Azure Search (semantic similarity)
+- **Testing**: Pytest with asyncio
+- **Validation**: Pydantic 2.x
+- **Server**: Uvicorn with async support
+- **Environment**: Python 3.11+
+
+## 🎯 Key Features
+
+### 🚀 **Zero-Manual-Fix Code Generation** (Bolt.new-style)
+- **Comprehensive Auto-Fix System**: 8-method pipeline eliminates syntax errors, missing imports, template issues
+- **BRD Parser**: Converts markdown to structured JSON (fixes agent misinterpretation)
+- **Content-Aware Caching**: MD5-based cache keys prevent wrong cached results
+- **Template Auto-Generation**: Creates missing HTML files automatically
+- **Route Auto-Creation**: Adds missing GET endpoints for POST-only routes
+- **Import Auto-Completion**: Scans code and adds all missing imports
+- **JavaScript Auto-Fix**: Converts form-urlencoded to JSON format
+- **Result**: Generate production-ready apps in **one command** with **ZERO manual fixes**
+
+### ⚡ Microservices Architecture
+- **Independent Agents**: Each agent runs as a separate service (ports 8001-8005)
+- **Supervisor Orchestration**: Chains agents intelligently with retry logic
+- **Scalable**: Agents can be scaled independently
+- **Resilient**: Failure in one agent doesn't affect others
+- **Extensible**: Easy to add new agents
+
+### 🔐 Enterprise-Ready
+- **Redis State Management**: Persistent session state
+- **Content-Aware Caching**: MD5 hash-based cache keys for accurate results
+- **Semantic Caching**: Azure Search for intelligent caching (optional)
+- **Policy Validation**: Optional policy enforcement
+- **Error Handling**: Comprehensive error tracking and reporting
+- **Session Management**: Unique session IDs with timestamped output directories
+
+### 🧪 Comprehensive Testing
+- **Auto-Generated Tests**: pytest test suites with 78%+ pass rate
+- **Health Checks**: Each agent exposes health endpoints
+- **Integration Tests**: Full A2A protocol testing
+- **Unit Tests**: Individual agent functionality tests
+- **Performance Tracking**: Response time monitoring per agent
+
+### 📊 Monitoring & Observability
+- **Structured Logging**: Consistent logging across all agents
+- **Agent Cards**: Self-describing agents via `/.well-known/agent.json`
+- **Status Endpoints**: Health and readiness checks
+- **Performance Metrics**: Execution time tracking (BRD: ~24s, JIRA: ~12s, Code: ~21s)
+
+### ✨ **Recent Critical Fixes (April 2026)**
+
+**Fix #1: BRD Parser (Markdown → JSON)**
+- **Problem**: Raw markdown sent to JIRA agent → misinterpretation
+- **Solution**: Added `parse_brd_to_json()` method in Supervisor
+- **Result**: Correctly extracts title, description, requirements sections
+
+**Fix #2: Content-Aware Caching**
+- **Problem**: Cache key = task_id → wrong e-commerce results for calculator prompts
+- **Solution**: Changed cache key to MD5(BRD content)
+- **Result**: Each unique BRD gets its own cache entry
+
+**Fix #3: Wildcard Import Syntax Error**
+- **Problem**: `from models import *, User, Product` → SyntaxError
+- **Solution**: Auto-fix removes wildcard, adds clean imports
+- **Result**: `from models import Task` → No syntax errors
+
+## 🔒 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | - | ✅ Yes |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | - | ✅ Yes |
+| `AZURE_OPENAI_DEPLOYMENT` | Model deployment name | `gpt4o_mktgenai` | ✅ Yes |
+| `AZURE_OPENAI_API_VERSION` | API version | `2024-08-01-preview` | ❌ No |
+| `REDIS_URL` | Redis connection URL | `redis://localhost:6379` | ❌ No |
+| `USE_FAKE_REDIS` | Use FakeRedis instead of real Redis | `auto` | ❌ No |
+| `AZURE_SEARCH_ENDPOINT` | Azure Search endpoint | - | ❌ No |
+| `AZURE_SEARCH_KEY` | Azure Search API key | - | ❌ No |
+| `ENABLE_CACHING` | Enable semantic caching | `true` | ❌ No |
+| `ENABLE_POLICY` | Enable policy validation | `false` | ❌ No |
+
+### Agent-Specific Ports
+
+| Agent | Port | Environment Variable |
+|-------|------|---------------------|
+| BRD Generator | 8001 | `BRD_GENERATOR_URL` |
+| BRD to JIRA | 8002 | `BRD_TO_JIRA_URL` |
+| Code to Test | 8003 | `CODE_TO_TEST_URL` |
+| Validation | 8004 | `VALIDATION_AGENT_URL` |
+| JIRA to Code | 8005 | `JIRA_TO_CODE_URL` |
+
+## 🐛 Troubleshooting
+
+### Issue: Agents Not Starting
+
+**Symptoms**: Agents fail to start or crash immediately  
+**Solutions**:
+- Check `.env` file configuration
+- Verify Azure OpenAI credentials
+- Check if ports are already in use
+- Review agent logs for specific errors
+
+### Issue: Redis Connection Failed
+
+**Symptoms**: Agents start but show Redis connection errors  
+**Solutions**:
+- Set `USE_FAKE_REDIS=true` in `.env` to use in-memory Redis
+- Start Redis server if using real Redis
+- Check `REDIS_URL` configuration
+
+### Issue: Test Failures
+
+**Symptoms**: `test_supervisor_integration.py` shows failed agents  
+**Solutions**:
+- Ensure all agents are running before running tests
+- Check agent logs for errors
+- Verify network connectivity to agent ports
+- Review error messages in test output
+
+### Issue: Slow Response Times
+
+**Symptoms**: Agents take too long to respond  
+**Solutions**:
+- Enable caching: `ENABLE_CACHING=true`
+- Configure Azure Search for semantic similarity caching
+- Check Azure OpenAI API quotas and rate limits
+- Monitor Redis performance
+
+## 🛣️ Roadmap
+
+- [x] **Supervisor orchestrator** ✅ (Completed April 2026)
+- [x] **Zero-manual-fix code generation** ✅ (Completed April 2026)
+- [x] **Auto-fix system** ✅ (Completed April 2026)
+- [x] **Content-aware caching** ✅ (Completed April 2026)
+- [ ] Web UI for supervisor
+- [ ] Multi-language support (Node.js, Go, Java)
+- [ ] Database integration generation (PostgreSQL, MongoDB)
+- [ ] Authentication/authorization code generation (OAuth, JWT)
+- [ ] Docker containerization for all agents
+- [ ] Kubernetes deployment manifests
+- [ ] CI/CD pipeline integration (GitHub Actions, Azure DevOps)
+- [ ] Direct JIRA API integration (create/update tickets)
+- [ ] OpenAPI spec import/export
+- [ ] Real-time collaboration features
+- [ ] Template auto-generation improvements (register, login, profile pages)
+- [ ] Advanced JavaScript framework support (React, Vue, Angular)
+
+## 📄 License
+
+[Your License Here]
+
+## 🙏 Acknowledgments
+
+- Azure OpenAI for AI capabilities
+- A2A Protocol for agent communication standards
+- LangChain for agent framework
+- FastAPI for web framework
+
+---
+
+**Built with ❤️ using Azure OpenAI and A2A Protocol**

@@ -1,0 +1,5 @@
+{
+  "agent_policy": true,
+  "resource_policy": true,
+  "task_policy": true
+}
