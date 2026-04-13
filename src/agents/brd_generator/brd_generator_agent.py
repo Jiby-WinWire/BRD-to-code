@@ -1,6 +1,6 @@
-"""Validation Agent
+"""BRD Generator Agent
 
-Enterprise-grade agent for validating Business Requirements Documents and requirements specifications.
+Enterprise-grade agent for generating Business Requirements Documents.
 Extends AgentClass from agent_base with memory management, policy controls,
 and A2A protocol support.
 """
@@ -21,79 +21,82 @@ from a2a.types import Task, TaskStatus, Message, TextPart
 # Import agent base components and compatibility layer
 from agent_base.agent import AgentClass
 from agent_base import InMemoryTaskManager, SendTaskRequest, SendTaskResponse
-from src.agents.validation.memory_manager import ValidationMemoryManager, ValidationAgentStatus
-from src.agents.validation.policy_manager import PolicyManager
-from src.agents.validation.validation_tool import create_validation_tool
+from src.agents.brd_generator.memory_manager import BRDMemoryManager, BRDAgentStatus
+from src.agents.brd_generator.policy_manager import PolicyManager
+from src.agents.brd_generator.brd_generator_tool import create_brd_generation_tool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ValidationTaskManager(InMemoryTaskManager):
-    """Custom task manager for Validation agent
+class BRDTaskManager(InMemoryTaskManager):
+    """Custom task manager for BRD Generator agent
     
     Handles A2A protocol SendTaskRequest and manages task lifecycle
     """
     
-    def __init__(self, agent: 'ValidationAgent'):
+    def __init__(self, agent: 'BRDGeneratorAgent'):
         super().__init__()
         self.agent = agent
-        logger.info("ValidationTaskManager initialized")
+        logger.info("BRDTaskManager initialized")
     
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handle incoming A2A task request
         
         Args:
-            request: SendTaskRequest with document to validate
+            request: SendTaskRequest with user query
             
         Returns:
-            SendTaskResponse with validation results
+            SendTaskResponse with generated BRD
         """
         logger.info(f"Received SendTaskRequest: {request.id}")
         task_id = request.id or str(uuid4())
-        # Safely get context_id from params
+        # Safely get context_id from params, generate if not present
         context_id = getattr(request.params, 'context_id', None) or str(uuid4())
         
         try:
-            # Extract document content from message - handle dict and object formats
-            document_content = None
+            # Extract user query from message - handle dict and object formats
+            user_query = None
             if request.params and request.params.message:
                 parts = request.params.message.parts if hasattr(request.params.message, 'parts') else []
                 
                 if parts:
                     first_part = parts[0]
                     if isinstance(first_part, dict):
-                        document_content = first_part.get('text', '')
+                        # Dictionary format: {'kind': 'text', 'text': '...'}
+                        user_query = first_part.get('text', '')
                     elif hasattr(first_part, 'root'):
+                        # A2A SDK Part object with root.text structure
                         if hasattr(first_part.root, 'text'):
-                            document_content = first_part.root.text
+                            user_query = first_part.root.text
                     elif hasattr(first_part, 'text'):
-                        document_content = first_part.text
+                        # Direct object format with .text attribute
+                        user_query = first_part.text
             
-            if not document_content:
-                raise ValueError("No document content found in request")
+            if not user_query:
+                raise ValueError("No text content found in request")
             
-            logger.info(f"Processing validation for document (first 100 chars): {document_content[:100]}...")
+            logger.info(f"Processing BRD generation for: {user_query[:100]}...")
             
             # Initialize task status
-            status = ValidationAgentStatus(
+            status = BRDAgentStatus(
                 status="processing",
-                document_content=document_content[:500],
+                user_prompt=user_query,
                 task_id=task_id,
                 session_id=self.agent.session_id,
                 start_time=datetime.utcnow().isoformat()
             )
-            await self.agent.memory_manager.push_validation_status(task_id, status)
+            await self.agent.memory_manager.push_brd_status(task_id, status)
             
             # Policy validation
             if self.agent.policy_manager:
                 logger.info("Validating policies...")
                 policy_result = self.agent.policy_manager.validate_all_policies(
                     session_id=self.agent.session_id,
-                    task_data={"document_length": len(document_content)},
+                    task_data={"query": user_query},
                     resources=["azure_openai", "redis_cache"],
-                    task_type="validation"
+                    task_type="brd_generation"
                 )
                 
                 if not policy_result.all_passed:
@@ -106,7 +109,7 @@ class ValidationTaskManager(InMemoryTaskManager):
                     logger.error(error_msg)
                     status.status = "failed"
                     status.error_message = error_msg
-                    await self.agent.memory_manager.push_validation_status(task_id, status)
+                    await self.agent.memory_manager.push_brd_status(task_id, status)
                     
                     # Return failed task
                     task = Task(
@@ -123,39 +126,32 @@ class ValidationTaskManager(InMemoryTaskManager):
                     )
                     return SendTaskResponse(id=request.id, result=task)
             
-            # Validate document using agent
-            result = await self.agent.validate_document(
-                document_content=document_content,
+            # Generate BRD using agent
+            result = await self.agent.generate_brd(
+                user_prompt=user_query,
                 task_id=task_id
             )
             
             # Update status
             status.status = "completed"
-            status.document_title = result.get("document_title")
-            status.validation_result = result.get("validation_result")
-            status.is_valid = result.get("is_valid", False)
-            status.validation_score = result.get("validation_score", 0.0)
-            status.issue_count = len(result.get("issues", []))
-            status.critical_issues = len([i for i in result.get("issues", []) if i.get("severity") == "critical"])
+            status.brd_json = result["brd_json"]
+            status.brd_markdown = result.get("brd_markdown")
             status.cache_hit = result.get("from_cache", False)
             status.end_time = datetime.utcnow().isoformat()
-            await self.agent.memory_manager.push_validation_status(task_id, status)
+            await self.agent.memory_manager.push_brd_status(task_id, status)
             
-            logger.info(f"Validation completed for task: {task_id}")
+            logger.info(f"BRD generation completed for task: {task_id}")
             
             # Create response message
             response_text = (
-                f"Document Validation Completed!\n\n"
-                f"Title: {result.get('document_title', 'N/A')}\n"
-                f"Valid: {result.get('is_valid', False)}\n"
-                f"Score: {result.get('validation_score', 0)}/100\n"
-                f"Issues Found: {len(result.get('issues', []))}\n"
+                f"BRD Generated Successfully!\n\n"
+                f"Title: {result['brd_json'].get('title', 'N/A')}\n"
                 f"From Cache: {result.get('from_cache', False)}\n\n"
-                f"Summary: {result.get('summary', 'No summary available')}"
+                f"{result.get('brd_markdown', json.dumps(result['brd_json'], indent=2))}"
             )
             
             task = Task(
-                id=task_id,
+         id=task_id,
                 context_id=context_id,
                 status=TaskStatus(
                     state="completed",
@@ -173,15 +169,12 @@ class ValidationTaskManager(InMemoryTaskManager):
             logger.error(f"Task processing failed: {str(e)}", exc_info=True)
             
             # Update error status
-            try:
-                status = await self.agent.memory_manager.pull_validation_status(task_id)
-                if status:
-                    status.status = "failed"
-                    status.error_message = str(e)
-                    status.end_time = datetime.utcnow().isoformat()
-                    await self.agent.memory_manager.push_validation_status(task_id, status)
-            except:
-                pass
+            status = await self.agent.memory_manager.pull_brd_status(task_id)
+            if status:
+                status.status = "failed"
+                status.error_message = str(e)
+                status.end_time = datetime.utcnow().isoformat()
+                await self.agent.memory_manager.push_brd_status(task_id, status)
             
             # Return failed task
             task = Task(
@@ -200,16 +193,11 @@ class ValidationTaskManager(InMemoryTaskManager):
             return SendTaskResponse(id=request.id, result=task)
 
 
-class ValidationAgent(AgentClass):
-    """Validation Agent extending AgentClass
+class BRDGeneratorAgent(AgentClass):
+    """BRD Generator Agent extending AgentClass
     
-    Validates Business Requirements Documents and requirements specifications for:
-    - Completeness: All required sections present
-    - Consistency: No contradictions or inconsistencies
-    - Clarity: Language is clear and unambiguous
-    - Measurability: Requirements are specific and measurable
-    - Traceability: Requirements trace to business goals
-    - Feasibility: Requirements are technically feasible
+    Generates comprehensive Business Requirements Documents from
+    natural language prompts using LLM, with caching and policy controls.
     """
     
     def __init__(
@@ -222,15 +210,15 @@ class ValidationAgent(AgentClass):
         azure_openai_api_version: str = "2023-05-15",
         azure_search_endpoint: Optional[str] = None,
         azure_search_key: Optional[str] = None,
-        azure_search_index: str = "validation-cache-index",
+        azure_search_index: str = "brd-cache-index",
         azure_openai_embedding_deployment: Optional[str] = None,
         discovery_url: Optional[str] = None,
-        client_id: str = "validation-client",
-        agent_url: str = "http://localhost:8002",
+        client_id: str = "brd-generator-client",
+        agent_url: str = "http://localhost:8001",
         enable_policy: bool = False,
         enable_caching: bool = True
     ):
-        """Initialize Validation Agent
+        """Initialize BRD Generator Agent
         
         Args:
             session_id: User session identifier
@@ -253,7 +241,7 @@ class ValidationAgent(AgentClass):
         self.deployment_name = azure_openai_deployment
         self.agent_url = agent_url  # Store agent URL for A2A server
         
-        logger.info(f"Initializing Validation Agent for session: {session_id}")
+        logger.info(f"Initializing BRD Generator Agent for session: {session_id}")
         logger.info(f"Agent URL: {agent_url}")
         
         # 1. Initialize Redis
@@ -269,7 +257,7 @@ class ValidationAgent(AgentClass):
         )
         
         # 3. Initialize Memory Manager
-        self.memory_manager = ValidationMemoryManager(
+        self.memory_manager = BRDMemoryManager(
             redis_client=self.redis_client,
             azure_search_endpoint=azure_search_endpoint if enable_caching else None,
             azure_search_key=azure_search_key if enable_caching else None,
@@ -285,7 +273,7 @@ class ValidationAgent(AgentClass):
         if enable_policy and discovery_url:
             policy_types_path = os.path.join(
                 os.path.dirname(__file__),
-                "data/validation_types.json"
+                "data/policy_types.json"
             )
             policy_types = {}
             if os.path.exists(policy_types_path):
@@ -302,8 +290,8 @@ class ValidationAgent(AgentClass):
         else:
             logger.info("Policy validation disabled")
         
-        # 5. Create validation tool
-        validation_tool = create_validation_tool(
+        # 5. Create BRD generation tool
+        brd_tool = create_brd_generation_tool(
             llm=self.llm,
             deployment_name=self.deployment_name,
             memory_manager=self.memory_manager
@@ -320,26 +308,27 @@ class ValidationAgent(AgentClass):
             "temperature": 0.2,
             "configurable": {
                 "thread_id": session_id,
-                "checkpoint_ns": "validation_agent"
+                "checkpoint_ns": "brd_generator"
             }
         }
         
         super().__init__(
-            agent_name="validation-agent",
-            tools=[validation_tool],
+            agent_name="brd-generator",
+            tools=[brd_tool],
             config=config,
             memory_backend=None,  # Using custom memory manager
             prompt=(
-                "You are a Document Validation Agent specialized in validating Business Requirements Documents (BRDs) "
-                "and requirements specifications. Your role is to thoroughly analyze documents for completeness, "
-                "consistency, clarity, measurability, traceability, and feasibility. Always use the validate_document "
-                "tool to process user requests and provide detailed validation feedback."
+                "You are a Business Requirements Document (BRD) Generator agent. "
+                "Your role is to transform natural language requirements into comprehensive, "
+                "structured BRDs that include business goals, functional/non-functional "
+                "requirements, stakeholders, acceptance criteria, and risk analysis. "
+                "Always use the generate_brd tool to process user requests."
             )
         )
         
         # 7. Initialize custom task manager
-        self.task_manager = ValidationTaskManager(self)
-        logger.info("Validation Agent fully initialized")
+        self.task_manager = BRDTaskManager(self)
+        logger.info("BRD Generator Agent fully initialized")
     
     def _init_redis(self, redis_url: str) -> StrictRedis:
         """Initialize Redis client (supports both real Redis and FakeRedis)"""
@@ -367,52 +356,37 @@ class ValidationAgent(AgentClass):
             logger.error(f"Failed to initialize Redis: {str(e)}")
             raise
     
-    async def validate_document(
+    async def generate_brd(
         self,
-        document_content: str,
-        task_id: Optional[str] = None,
-        document_type: str = "brd",
-        validation_scope: Optional[str] = None
+        user_prompt: str,
+        task_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Validate document
+        """Generate BRD from user prompt
         
         Args:
-            document_content: Document content to validate
+            user_prompt: Natural language requirements
             task_id: Task identifier for tracking
-            document_type: Type of document (brd, requirements, specification)
-            validation_scope: Specific validation scope
             
         Returns:
-            Dict with validation results
+            Dict with brd_json, brd_markdown, from_cache
         """
-        logger.info("Invoking validation tool...")
+        logger.info("Invoking BRD generation tool...")
         
         # Use the LangGraph agent to process
-        from src.agents.validation.validation_tool import validate_document_function
+        from src.agents.brd_generator.brd_generator_tool import generate_brd_function
         
-        result = await validate_document_function(
-            document_content=document_content,
+        result = await generate_brd_function(
+            user_prompt=user_prompt,
             llm=self.llm,
             deployment_name=self.deployment_name,
             memory_manager=self.memory_manager,
             task_id=task_id or str(uuid4()),
-            document_type=document_type,
-            validation_scope=validation_scope
+            include_markdown=True
         )
         
         return {
-            "document_title": result.document_title,
-            "is_valid": result.is_valid,
-            "validation_score": result.validation_score,
-            "validation_result": {
-                "document_title": result.document_title,
-                "is_valid": result.is_valid,
-                "validation_score": result.validation_score,
-                "issues": [issue.dict() for issue in result.issues],
-                "summary": result.summary
-            },
-            "issues": [issue.dict() for issue in result.issues],
-            "summary": result.summary,
+            "brd_json": result.brd_json,
+            "brd_markdown": result.brd_markdown,
             "from_cache": result.from_cache,
             "similarity_score": result.similarity_score
         }
@@ -432,67 +406,82 @@ class ValidationAgent(AgentClass):
         )
         
         skill = BaseAgentSkill(
-            id="validate_document",
-            name="Document Validation",
-            description="Validate and analyze Business Requirements Documents and requirements specifications for completeness, consistency, clarity, measurability, traceability, and feasibility.",
-            tags=["validation", "requirements", "brd", "quality-assurance", "document-analysis"],
+            id="generate_brd",
+            name="Business Requirements Document Generation",
+            description="Generate comprehensive Business Requirements Documents from natural language descriptions. Includes business goals, functional/non-functional requirements, stakeholders, acceptance criteria, assumptions, constraints, and risk analysis.",
+            tags=["brd", "requirements", "documentation", "business-analysis"],
             examples=[
-                "Validate this BRD for completeness and consistency",
-                "Check if this requirements document has clear acceptance criteria",
-                "Analyze this specification for technical feasibility",
-                "Validate that all business goals are traceable to requirements"
+                "Create a BRD for a customer relationship management system",
+                "Generate requirements for an e-commerce platform with inventory management",
+                "Build a BRD for a mobile app for food delivery with real-time tracking"
             ],
             input_schema={
                 "type": "object",
                 "properties": {
-                    "document_content": {
+                    "query": {
                         "type": "string",
-                        "description": "Document content to validate"
+                        "description": "Natural language description of the system or feature to document"
                     },
-                    "document_type": {
+                    "user_prompt": {
                         "type": "string",
-                        "description": "Type of document: brd, requirements, specification"
-                    },
-                    "validation_scope": {
-                        "type": "string",
-                        "description": "Validation scope: completeness, consistency, clarity, all"
+                        "description": "Alternative field name for requirements description"
                     }
                 },
-                "required": ["document_content"]
+                "required": []
             },
             output_schema={
                 "type": "object",
                 "properties": {
-                    "is_valid": {
-                        "type": "boolean",
-                        "description": "Overall validation result"
+                    "brd_json": {
+                        "type": "object",
+                        "description": "Structured BRD in JSON format"
                     },
-                    "validation_score": {
-                        "type": "number",
-                        "description": "Validation score 0-100"
-                    },
-                    "issues": {
-                        "type": "array",
-                        "description": "List of validation issues"
-                    },
-                    "summary": {
+                    "brd_markdown": {
                         "type": "string",
-                        "description": "Summary of validation results"
+                        "description": "Professional markdown-formatted BRD"
+                    },
+                    "from_cache": {
+                        "type": "boolean",
+                        "description": "Whether result was retrieved from cache"
                     }
                 }
             }
         )
         
-        return skill
+        capabilities = BaseAgentCapabilities(
+            streaming=False,
+            supportsEvents=False
+        )
+        
+        authentication = BaseAgentAuthentication(
+            schemes=["Bearer", "API_Key"],
+            credentials="JWT_Token"
+        )
+        
+        return BaseAgentcard(
+            name="BRD Generator Agent",
+            description="Enterprise agent for generating comprehensive Business Requirements Documents from natural language descriptions",
+            url=self.agent_url,
+            version="1.0.0",
+            skills=[skill],
+            capabilities=capabilities,
+            authentication=authentication,
+            visibility=AgentAccess(
+                accessGroup="",
+                vnet="",
+                authentication_required=False
+            ),
+            owner_email="brd-generator@winwire.com"
+        )
     
-    def start(self, host: str = "0.0.0.0", port: int = 8004):
+    def start(self, host: str = "0.0.0.0", port: int = 8001):
         """Start A2A server
         
         Args:
             host: Server host address (bind address)
             port: Server port number
         """
-        logger.info(f"Starting Validation A2A Server on {host}:{port}")
+        logger.info(f"Starting BRD Generator A2A Server on {host}:{port}")
         
         # Use the agent_url from initialization (already set correctly)
         # DON'T override with bind address (0.0.0.0 is not client-accessible)
