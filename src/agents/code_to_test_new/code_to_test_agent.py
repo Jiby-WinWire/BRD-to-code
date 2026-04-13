@@ -61,6 +61,9 @@ class CodeToTestTaskManager(InMemoryTaskManager):
             if not raw_text:
                 raise ValueError("SendTaskRequest did not contain any text payload")
 
+            logger.info(f"📥 Received raw_text: {len(raw_text)} chars")
+            logger.info(f"📥 Raw text preview: {raw_text[:500] if len(raw_text) > 0 else '(empty)'}...")
+
             stories = self._parse_stories(raw_text)
             if not stories:
                 raise ValueError("No stories payload found in task request")

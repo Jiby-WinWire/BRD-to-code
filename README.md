@@ -74,6 +74,26 @@ The system consists of a **Supervisor orchestrator** and **5 independent A2A age
      - Stakeholders and acceptance criteria
    - **Features**: Redis caching, Azure Search semantic similarity, policy validation
 
+### 1.5 **Architecture Generator Agent** (Port 7000)
+   - **Location**: External agent (ArchGeneratorAgent)
+   - **Input**: BRD text/markdown via A2A protocol
+   - **Process**: Uses LangGraph ReAct agent with LLM-driven tool selection:
+     - `extract_entities`: Identifies system components (databases, services, APIs)
+     - `infer_relationships`: Determines connections and data flows
+     - Validates graph structure and filters invalid edges
+   - **Output**: Architecture diagram as SVG/PNG/JSON with:
+     - Nodes: System components with types and tiers (ingress/process/data)
+     - Edges: Relationships and connections between components
+     - Metadata: Node/edge counts, confidence scores
+     - Blob URL: Stored in Azure Blob Storage for persistence
+   - **Features**: 
+     - Agentic reasoning with up to 50 iterations
+     - Tier-based clustering (ingress, process, data, external)
+     - Multi-format output (SVG, PNG, JSON)
+     - Azure Blob Storage integration
+     - Template-based node styling
+   - **Integration**: Automatically called by Supervisor after BRD generation, diagram embedded in generated README
+
 ### 2. **BRD to JIRA Agent** (Port 8002)
    - **Location**: `src/agents/brd_to_jira/`
    - **Input**: BRD JSON via A2A protocol (structured JSON with title, description, requirements)
@@ -144,6 +164,13 @@ User Prompt: "Build a todo list app with create and delete tasks"
          ├─[1]─▶ BRD Generator (8001)           [23.87s]
          │        └─── Structured BRD (markdown → JSON parsed)
          │
+         ├─[1.5]─▶ Architecture Generator (7000)  [87.63s]
+         │        └─── Architecture Diagram (SVG)
+         │             │
+         │             ├─ Extracts: Components, relationships
+         │             ├─ Generates: Tier-based diagram
+         │             └─ Output: Azure Blob URL (embedded in README)
+         │
          ├─[2]─▶ BRD to JIRA (8002)             [12.44s]
          │        └─── JIRA Tickets (content-aware cache)
          │
@@ -173,9 +200,9 @@ User Prompt: "Build a todo list app with create and delete tasks"
                  ├── tests/ (test_api.py, conftest.py)
                  ├── run.py
                  ├── requirements.txt
-                 └── README.md
+                 └── README.md (with embedded architecture diagram)
 
-Total Duration: ~70 seconds
+Total Duration: ~160 seconds (with architecture diagram)
 Manual Fixes Required: 0 🎉
 ```
 
