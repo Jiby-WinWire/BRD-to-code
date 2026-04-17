@@ -56,6 +56,7 @@ class JiraTaskManager(InMemoryTaskManager):
         try:
             # Extract user query from message
             user_query = None
+            language = None
             
             logger.debug(f"Request params type: {type(request.params)}")
             logger.debug(f"Request params: {request.params}")
@@ -69,6 +70,9 @@ class JiraTaskManager(InMemoryTaskManager):
                     params_dict = {}
                 
                 logger.debug(f"Params dict keys: {params_dict.keys() if isinstance(params_dict, dict) else 'N/A'}")
+                
+                # Extract language if provided
+                language = params_dict.get('language') if isinstance(params_dict, dict) else getattr(request.params, 'language', None)
                 
                 message = params_dict.get('message') if isinstance(params_dict, dict) else getattr(request.params, 'message', None)
                 
@@ -105,9 +109,10 @@ class JiraTaskManager(InMemoryTaskManager):
             logger.info(f"Processing code generation for: {user_query[:100]}...")
             
             # Generate code using agent
-            result = await self.agent.convert_issue(
+            result = await self.convert_issue(
                 issue_text=user_query,
-                task_id=task_id
+                task_id=task_id,
+                language=language
             )
             
             logger.info(f"Code generation completed for task: {task_id}")
@@ -117,7 +122,7 @@ class JiraTaskManager(InMemoryTaskManager):
             
             # Create response message
             response_text = (
-                f"Code Generated Successfully!\n\n"
+                f"Code Generated Successfully in {result.get('language', 'Unknown')}!\n\n"
                 f"```\n{result['code_snippet']}\n```\n\n"
                 f"Explanation:\n{result.get('explanation', 'N/A')}"
             )
@@ -178,7 +183,8 @@ class JiraToCodeAgent(AgentClass):
         discovery_url: Optional[str] = None,
         client_id: str = "jira-to-code-client",
         agent_url: str = "http://localhost:8005",
-        enable_policy: bool = False
+        enable_policy: bool = False,
+        language: str = "python"
     ):
         """Initialize Jira To Code Agent
         
@@ -193,8 +199,10 @@ class JiraToCodeAgent(AgentClass):
             client_id: Client identifier for policy
             agent_url: This agent's URL
             enable_policy: Enable policy validation
+            language: Programming language (python, csharp, dotnet)
         """
         self.session_id = session_id
+        self.language = language
         self.deployment_name = azure_openai_deployment
         self.agent_url = agent_url  # Store agent URL for A2A server
         
@@ -243,7 +251,8 @@ class JiraToCodeAgent(AgentClass):
         jira_tool = create_jira_to_code_tool(
             llm=self.llm,
             deployment_name=self.deployment_name,
-            memory_manager=self.memory_manager
+            memory_manager=self.memory_manager,
+            language=language
         )
         
         # 6. Initialize parent AgentClass
@@ -307,34 +316,41 @@ class JiraToCodeAgent(AgentClass):
     async def convert_issue(
         self,
         issue_text: str,
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        language: Optional[str] = None
     ) -> Dict[str, Any]:
         """Convert Jira issue to code
         
         Args:
             issue_text: Jira issue description
             task_id: Task identifier for tracking
+            language: Programming language (overrides default)
             
         Returns:
-            Dict with code_snippet, explanation, from_cache
+            Dict with code_snippet, explanation, from_cache, language
         """
         logger.info("Invoking code generation tool...")
         
         # Use the LangGraph agent to process
         from src.agents.jira_to_code.jira_to_code_tool import generate_code_from_jira_function
         
+        # Use provided language or fall back to default
+        target_language = language or self.language
+        
         result = await generate_code_from_jira_function(
             issue_text=issue_text,
             llm=self.llm,
             deployment_name=self.deployment_name,
             memory_manager=self.memory_manager,
-            task_id=task_id or str(uuid4())
+            task_id=task_id or str(uuid4()),
+            language=target_language
         )
         
         return {
             "code_snippet": result.code_snippet,
             "explanation": result.explanation,
-            "from_cache": result.from_cache
+            "from_cache": result.from_cache,
+            "language": result.language
         }
     
     def get_task_manager(self):

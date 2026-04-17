@@ -2,13 +2,15 @@
 from typing import List, Dict
 import logging
 import json
+from pathlib import Path
 from src.infrastructure.azure_clients import get_llm_client, get_llm_deployment_name
 
 logger = logging.getLogger(__name__)
 
 def stories_to_fastapi_code(stories: List[Dict]) -> Dict[str, str]:
     """
-    Generate functional FastAPI code files from Jira user stories using LLM.
+    Generate functional FastAPI code files from Jira user stories.
+    Uses LLM if available, otherwise falls back to sample templates.
     Returns a dict mapping file paths to file contents.
     """
     if not stories:
@@ -19,20 +21,31 @@ def stories_to_fastapi_code(stories: List[Dict]) -> Dict[str, str]:
     deployment_name = get_llm_deployment_name()
     
     # Group stories by type for better code generation
-    # Handle both JIRA format (withfields' key) and simple format
     functional_stories = []
     for s in stories:
         if 'fields' in s:
-            # JIRA format
             if 'functional' in s['fields'].get('labels', []):
                 functional_stories.append(s)
         else:
-            # Simple format - assume all are functional
             functional_stories.append(s)
     
-    # Limit to first 5 functional stories for better quality
     stories_to_process = functional_stories[:5] if functional_stories else stories[:5]
     
+    # Try LLM first if available
+    if llm is not None:
+        result = _generate_with_llm(stories_to_process, llm, deployment_name)
+        if result:
+            return result
+        logger.warning("LLM generation failed, falling back to templates")
+    else:
+        logger.info("⚠️  Azure OpenAI not configured, using template generation")
+    
+    # Fallback to template-based generation
+    return _generate_from_templates(stories_to_process)
+
+
+def _generate_with_llm(stories_to_process: List[Dict], llm, deployment_name: str) -> Dict[str, str]:
+    """Generate code using LLM (Azure OpenAI)"""
     system_prompt = """You are an expert Full-Stack Web Developer. Generate a complete, production-ready web application with FastAPI backend and interactive HTML frontend.
 
 Generate SEVEN files for a complete web application:
@@ -174,8 +187,55 @@ Create a professional, interactive web app with forms, tables, and dynamic funct
             return _generate_fallback_code(stories_to_process)
             
     except Exception as e:
-        logger.error(f"Error generating code with LLM: {e}")
-        return _generate_fallback_code(stories_to_process)
+        logger.error(f"Error generating code with LLM: {str(e)}")
+        return {}
+    
+    return {}
+
+def _generate_from_templates(stories: List[Dict]) -> Dict[str, str]:
+    """Generate using built-in templates (no LLM required)"""
+    try:
+        logger.info("Using template-based generation (no LLM required)")
+        
+        # Try to load sample files first
+        sample_path = Path(__file__).parent.parent / "output" / "python-sample"
+        
+        if sample_path.exists():
+            logger.info(f"Loading templates from {sample_path}")
+            return _load_template_files(sample_path)
+        else:
+            logger.info("Using fallback code generation")
+            return _generate_fallback_code(stories)
+            
+    except Exception as e:
+        logger.error(f"Template generation failed: {str(e)}")
+        return _generate_fallback_code(stories)
+
+def _load_template_files(template_path: Path) -> Dict[str, str]:
+    """Load templates from existing sample files"""
+    files = {}
+    
+    file_mappings = {
+        "src/api/models.py": "models.py",
+        "src/api/services.py": "services.py",
+        "src/api/main.py": "main.py",
+        "templates/index.html": "index.html",
+        "templates/base.html": "base.html",
+        "static/style.css": "style.css",
+        "static/app.js": "app.js",
+    }
+    
+    for output_path, template_filename in file_mappings.items():
+        full_path = template_path / template_filename
+        if full_path.exists():
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    files[output_path] = f.read()
+                logger.info(f"  ✓ Loaded: {output_path}")
+            except Exception as e:
+                logger.warning(f"  ✗ Failed to load {output_path}: {str(e)}")
+    
+    return files if files else _generate_fallback_code([])
 
 def _generate_fallback_code(stories: List[Dict]) -> Dict[str, str]:
     """Generate basic functional web app as fallback"""

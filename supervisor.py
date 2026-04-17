@@ -920,10 +920,15 @@ pytest tests/ -v  # Run automated tests
                     "duration": duration
                 }
     
-    async def run_full_workflow(self, requirement: str, save_output: bool = True) -> Dict[str, Any]:
+    async def run_full_workflow(self, requirement: str, save_output: bool = True, language: str = "python") -> Dict[str, Any]:
         """
         Run the complete workflow:
         Requirement → BRD → JIRA → Code → Validation
+        
+        Args:
+            requirement: API requirement description
+            save_output: Whether to save output to disk
+            language: Programming language (python, csharp, dotnet)
         """
         
         print("\n" + "="*80)
@@ -931,6 +936,7 @@ pytest tests/ -v  # Run automated tests
         print("="*80)
         print(f"Context ID: {self.context_id}")
         print(f"Session ID: {self.session_id}")
+        print(f"Language: {language.upper()}")
         print(f"Requirement: {requirement[:100]}...")
         print("="*80)
         
@@ -938,6 +944,7 @@ pytest tests/ -v  # Run automated tests
             "context_id": self.context_id,
             "session_id": self.session_id,
             "requirement": requirement,
+            "language": language,
             "start_time": datetime.now().isoformat(),
             "steps": []
         }
@@ -1112,7 +1119,16 @@ pytest tests/ -v  # Run automated tests
             else:
                 first_issue = "Create API endpoint for user registration"
             
-            jira_to_code_result = await self.send_task("jira_to_code", first_issue)
+            # Pass language as metadata to jira_to_code agent
+            jira_to_code_result = await self.send_task(
+                "jira_to_code", 
+                first_issue,
+                metadata={
+                    "session_id": self.session_id,
+                    "user_id": "supervisor",
+                    "language": language
+                }
+            )
             workflow_results["steps"].append({"step": 5, "agent": "JIRA to Code", "result": jira_to_code_result})
         except:
             print("⚠️  Could not parse JIRA for code snippet generation (non-critical)")
@@ -1230,6 +1246,7 @@ async def main():
     # Get requirement from command line or prompt
     if len(sys.argv) > 1:
         requirement = " ".join(sys.argv[1:])
+        language = "python"  # Default to Python if provided via CLI
     else:
         print("\n" + "="*80)
         print("🤖 BRD-to-Code Supervisor - Interactive Mode")
@@ -1245,12 +1262,31 @@ async def main():
         if not requirement:
             print("❌ No requirement provided. Exiting.")
             return
+        
+        # Prompt for language selection
+        print("\n" + "-"*80)
+        print("Select programming language:")
+        print("  1. Python (FastAPI) - Default")
+        print("  2. C# (ASP.NET Core)")
+        print("  3. .NET (ASP.NET Core)")
+        print("-"*80)
+        
+        language_choice = input("Enter choice (1-3) [default: 1]: ").strip() or "1"
+        
+        language_map = {
+            "1": "python",
+            "2": "csharp",
+            "3": "dotnet"
+        }
+        
+        language = language_map.get(language_choice, "python")
+        print(f"✅ Selected language: {language.upper()}")
     
     # Create supervisor and run workflow
     supervisor = Supervisor()
     
     try:
-        results = await supervisor.run_full_workflow(requirement)
+        results = await supervisor.run_full_workflow(requirement, language=language)
         supervisor.print_summary(results)
         
         if results["success"]:
