@@ -65,14 +65,19 @@ The system consists of a **Supervisor orchestrator** and **5 independent A2A age
 
 ### 1. **BRD Generator Agent** (Port 8001)
    - **Location**: `src/agents/brd_generator/`
-   - **Input**: Natural language prompt via A2A protocol
+   - **Input**: Natural language prompt via A2A protocol (with optional `template_id` in metadata)
    - **Process**: Uses Azure OpenAI to analyze requirements and generate structured BRD
    - **Output**: Comprehensive BRD JSON with:
      - Business goals and objectives
      - Functional requirements (FR1, FR2, etc.)
      - Non-functional requirements (NFR1, NFR2, etc.)
      - Stakeholders and acceptance criteria
-   - **Features**: Redis caching, Azure Search semantic similarity, policy validation
+   - **Features**: 
+     - **Multi-Template System**: 4 built-in templates (standard, enterprise, lean, custom)
+     - **Auto-Selection**: Keyword-based template matching (government → enterprise, MVP → lean)
+     - **Custom Templates**: Upload your own DOCX/PDF/TXT templates
+     - **Template Extraction**: CLI tool to convert existing documents to templates
+     - Redis caching, Azure Search semantic similarity, policy validation
 
 ### 1.5 **Architecture Generator Agent** (Port 7000)
    - **Location**: External agent (ArchGeneratorAgent)
@@ -496,7 +501,273 @@ Results: 5/5 agents passed
    All agents successfully received and processed tasks
 ```
 
-## 📁 Project Structure
+## � BRD Templates
+
+The BRD Generator supports **multiple templates** that automatically adapt document structure and tone based on your project type. Templates are auto-selected based on keywords in your prompt, or you can specify one explicitly.
+
+### Available Templates
+
+| Template ID | Use Case | Sections | Tone | Auto-Select Keywords |
+|------------|----------|----------|------|---------------------|
+| `standard_brd` | General-purpose projects | 9 sections | Professional | *Default fallback* |
+| `enterprise_brd` | Government/compliance/enterprise | 13 sections | Formal, executive-level | government, federal, enterprise, compliance, HIPAA, GDPR, audit, regulatory |
+| `lean_brd` | Startups, MVPs, rapid prototyping | 8 sections | Concise, entrepreneurial | startup, mvp, prototype, lean, agile, quick, rapid, simple |
+| `custom_project` | User-uploaded templates | Variable | Customizable | *(Manual selection only)* |
+
+### Usage
+
+#### Auto-Selection (Recommended)
+
+The system automatically selects the best template based on your prompt keywords:
+
+```bash
+# Auto-selects enterprise_brd (keywords: "government", "HIPAA", "compliance")
+python supervisor.py "Build a government healthcare system with HIPAA compliance"
+
+# Auto-selects lean_brd (keywords: "startup", "MVP", "quick")
+python supervisor.py "Quick MVP for a food delivery startup"
+
+# Auto-selects standard_brd (no matching keywords)
+python supervisor.py "Build a task management system"
+```
+
+#### Explicit Template Selection
+
+Override auto-selection by specifying a template:
+
+```bash
+# Use enterprise template explicitly
+python supervisor.py "Build internal CRM" --template enterprise_brd
+
+# Use lean template explicitly
+python supervisor.py "Build healthcare system" --template lean_brd
+
+# Use custom uploaded template
+python supervisor.py "Build project tracker" --template custom_project
+```
+
+### Template Comparison
+
+**Standard BRD (9 sections):**
+- Title & Description
+- Business Goals
+- Functional Requirements
+- Non-Functional Requirements
+- Stakeholders
+- Acceptance Criteria
+- Assumptions
+- Constraints
+- Risks
+
+**Enterprise BRD (13 sections):**
+- Document Control (version tracking, approvals)
+- Executive Summary
+- Title & Description
+- Business Goals
+- Functional Requirements (with traceability matrix)
+- Non-Functional Requirements
+- Stakeholders (RACI matrix)
+- Compliance & Governance (regulatory, audit trails)
+- Acceptance Criteria
+- Assumptions
+- Constraints
+- Risk Analysis (probability/impact matrix)
+- Implementation Plan
+
+**Lean BRD (8 sections):**
+- Product Vision (problem statement, value prop)
+- MVP Features (3-5 core features only)
+- User Experience
+- Validation Metrics (hypotheses, pivot criteria)
+- Technical Approach
+- Launch Plan (2-4 week timeline)
+- Risks & Assumptions
+- Future Roadmap
+
+### Creating Custom Templates
+
+You can upload your own BRD templates in three ways:
+
+#### Method 1: Extract from Existing Documents (Recommended)
+
+Extract template structure from DOCX, PDF, or TXT files:
+
+```bash
+# Navigate to template extraction tool
+cd src/agents/brd_generator/utils
+
+# Extract from DOCX
+python template_extractor.py "C:\Documents\CompanyTemplate.docx" "company_standard" "Our company's standard BRD format"
+
+# Extract from PDF  
+python template_extractor.py "C:\Templates\AgencyBRD.pdf" "agency_brd" "Government agency BRD template"
+
+# Extract from TXT
+python template_extractor.py "template.txt" "simple_brd" "Lightweight BRD template"
+```
+
+**What it does:**
+1. Reads the document (DOCX/PDF/TXT)
+2. Identifies sections using pattern matching (headers, ALL CAPS, numbered headings)
+3. Converts to JSON template format
+4. Saves to `src/agents/brd_generator/templates/{template_name}.json`
+5. **Immediately available** for use (no restart needed)
+
+#### Method 2: Create JSON Template Manually
+
+Create a JSON file in `src/agents/brd_generator/templates/`:
+
+```json
+{
+  "template_id": "my_custom_template",
+  "template_name": "My Custom BRD Template",
+  "description": "Custom template for internal projects",
+  "use_case": "Internal software development projects",
+  "sections": [
+    {
+      "section_id": "project_overview",
+      "title": "Project Overview",
+      "required": true,
+      "description": "High-level project summary and objectives",
+      "subsections": [
+        "Project Background",
+        "Business Case",
+        "Success Criteria"
+      ]
+    },
+    {
+      "section_id": "requirements",
+      "title": "Requirements",
+      "required": true,
+      "description": "Detailed functional and non-functional requirements",
+      "subsections": [
+        "Functional Requirements",
+        "Non-Functional Requirements",
+        "Constraints"
+      ]
+    }
+  ],
+  "formatting": {
+    "style": "professional",
+    "tone": "business-professional",
+    "length": "comprehensive",
+    "include_diagrams": true,
+    "include_tables": true
+  }
+}
+```
+
+**Template JSON Structure:**
+- `template_id` (required): Unique identifier (lowercase, underscores)
+- `template_name` (required): Display name
+- `description` (required): Template purpose and use case
+- `use_case`: When to use this template
+- `sections` (required): Array of section objects:
+  - `section_id`: Unique section identifier
+  - `title`: Section heading
+  - `required`: Boolean (true/false)
+  - `description`: Section purpose
+  - `subsections`: Array of subsection titles
+- `formatting`: Document style preferences
+  - `style`: formal | professional | casual
+  - `tone`: executive | technical | entrepreneurial
+  - `length`: brief | comprehensive | detailed
+  - `include_diagrams`: Boolean
+  - `include_tables`: Boolean
+
+#### Method 3: Programmatic Upload
+
+Add templates via Python code:
+
+```python
+from src.agents.brd_generator.utils.template_manager import SimpleBRDTemplateManager
+
+# Create template dictionary
+my_template = {
+    "template_id": "my_template",
+    "template_name": "My Project Template",
+    "description": "Custom template for specific projects",
+    "use_case": "Engineering projects",
+    "sections": [
+        {
+            "section_id": "overview",
+            "title": "Overview",
+            "required": True,
+            "description": "Project overview"
+        }
+    ],
+    "formatting": {
+        "style": "professional",
+        "tone": "technical"
+    }
+}
+
+# Upload to system
+template_manager = SimpleBRDTemplateManager()
+template_id = template_manager.add_user_template(my_template)
+print(f"Template '{template_id}' uploaded successfully!")
+```
+
+### Template Auto-Selection Rules
+
+Templates are auto-selected based on priority-ranked keyword matching:
+
+| Priority | Keywords | Selected Template | Use Case |
+|----------|----------|-------------------|----------|
+| 11 | government, federal | `enterprise_brd` | Government projects |
+| 10 | compliance, HIPAA, GDPR, SOC2, ISO | `enterprise_brd` | Regulated industries |
+| 9 | enterprise, corporation | `enterprise_brd` | Large organizations |
+| 8 | complex, mission-critical | `enterprise_brd` | Critical systems |
+| 7 | startup, seed, series-a | `lean_brd` | Startup projects |
+| 7 | mvp, prototype, poc | `lean_brd` | Proof of concept |
+| 6 | quick, rapid, simple, fast | `lean_brd` | Rapid development |
+| 6 | lean, agile, scrum | `lean_brd` | Agile methodologies |
+| 0 | *(no matches)* | `standard_brd` | Default fallback |
+
+**Configuration:**  
+Edit selection rules in `src/agents/brd_generator/templates/template_config.json`:
+
+```json
+{
+  "template_selection_rules": {
+    "rules": [
+      {
+        "keywords": ["internal", "company"],
+        "template": "my_custom_template",
+        "priority": 9
+      }
+    ],
+    "default_template": "standard_brd",
+    "fallback_template": "standard_brd"
+  }
+}
+```
+
+### Template Best Practices
+
+1. **Keep section IDs unique** - Use descriptive, unique identifiers
+2. **Mark required sections** - Critical sections should be `required: true`
+3. **Add descriptive subsections** - Help the LLM understand section content
+4. **Set appropriate tone** - Match tone to your organization's style
+5. **Test with real prompts** - Validate template output with actual use cases
+6. **Version your templates** - Track changes in template descriptions
+
+### Viewing Available Templates
+
+Check which templates are loaded:
+
+```python
+from src.agents.brd_generator.utils.template_manager import SimpleBRDTemplateManager
+
+manager = SimpleBRDTemplateManager()
+templates = manager.get_available_templates()
+
+for t in templates:
+    print(f"{t['template_id']}: {t['template_name']}")
+    print(f"  {t['description']}")
+```
+
+## �📁 Project Structure
 
 ```
 BRD-to-code/
@@ -505,6 +776,18 @@ BRD-to-code/
 ├── src/
 │   └── agents/
 │       ├── brd_generator/          # BRD Generator Agent (8001)
+│       │   ├── templates/          # ⭐ BRD Template System
+│       │   │   ├── standard_brd.json       # General-purpose template (9 sections)
+│       │   │   ├── enterprise_brd.json     # Enterprise/government template (13 sections)
+│       │   │   ├── lean_brd.json           # Startup/MVP template (8 sections)
+│       │   │   ├── custom_project.json     # User-uploaded templates
+│       │   │   └── template_config.json    # Auto-selection rules
+│       │   ├── utils/              # ⭐ Template Management Utilities
+│       │   │   ├── __init__.py
+│       │   │   ├── template_manager.py     # Template loader & auto-selection
+│       │   │   └── template_extractor.py   # Extract templates from DOCX/PDF/TXT
+│       │   ├── prompts/
+│       │   │   └── brd_generation.prompt
 │       │   ├── agent_executor.py
 │       │   ├── brd_generator_agent.py
 │       │   ├── brd_generator_tool.py
@@ -689,6 +972,11 @@ BRD-to-code/
 - [x] **Zero-manual-fix code generation** ✅ (Completed April 2026)
 - [x] **Auto-fix system** ✅ (Completed April 2026)
 - [x] **Content-aware caching** ✅ (Completed April 2026)
+- [x] **BRD Template System** ✅ (Completed April 2026)
+  - [x] Multi-template support (standard, enterprise, lean)
+  - [x] Keyword-based auto-selection
+  - [x] Custom template upload (DOCX/PDF/TXT extraction)
+  - [x] Template management utilities
 - [ ] Web UI for supervisor
 - [ ] Multi-language support (Node.js, Go, Java)
 - [ ] Database integration generation (PostgreSQL, MongoDB)

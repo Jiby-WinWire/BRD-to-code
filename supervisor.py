@@ -4,6 +4,7 @@ Chains all 5 agents together: Requirement → BRD → JIRA → Code → Tests �
 
 Usage:
     python supervisor.py "Create an inventory management API with barcode scanning"
+    python supervisor.py "Build healthcare system" --template enterprise_brd
     
 Or run interactively:
     python supervisor.py
@@ -13,6 +14,7 @@ import httpx
 import uuid
 import json
 import sys
+import argparse
 import subprocess
 import re
 from datetime import datetime
@@ -897,8 +899,15 @@ pytest tests/ -v  # Run automated tests
         except Exception as e:
             logger.error(f"Failed to write docs files: {e}")
     
-    async def send_task(self, agent_key: str, message: str, metadata: Optional[Dict] = None) -> Dict[str, Any]:
-        """Send task to an agent using A2A protocol"""
+    async def send_task(self, agent_key: str, message: str, metadata: Optional[Dict] = None, template_id: Optional[str] = None) -> Dict[str, Any]:
+        """Send task to an agent using A2A protocol
+        
+        Args:
+            agent_key: Key identifying the agent to send to
+            message: Message content to send
+            metadata: Optional metadata dictionary
+            template_id: Optional template ID (for BRD generator)
+        """
         
         agent = self.AGENTS[agent_key]
         agent_url = agent["url"]
@@ -908,36 +917,46 @@ pytest tests/ -v  # Run automated tests
         print(f"\n{'='*80}")
         print(f"📤 Sending task to: {agent_name}")
         print(f"   URL: {agent_url}")
+        if template_id:
+            print(f"   Template: {template_id}")
         print(f"{'='*80}")
         
         # Build JSON-RPC request (A2A protocol)
+        params_metadata = metadata or {
+            "session_id": self.session_id,
+            "user_id": "supervisor"
+        }
+        
+        # Add template_id to metadata if provided (for BRD generator)
+        if template_id:
+            params_metadata["template_id"] = template_id
+        
+        params = {
+            "message": {
+                "kind": "message",
+                "message_id": str(uuid.uuid4()),
+                "role": "user",
+                "parts": [
+                    {
+                        "kind": "text",
+                        "text": message
+                    }
+                ],
+                "context_id": None,
+                "task_id": None,
+                "metadata": None,
+                "reference_task_ids": None,
+                "extensions": None
+            },
+            "context_id": self.context_id,
+            "metadata": params_metadata
+        }
+        
         jsonrpc_request = {
             "jsonrpc": "2.0",
             "id": str(uuid.uuid4()),
             "method": "message/send",
-            "params": {
-                "message": {
-                    "kind": "message",
-                    "message_id": str(uuid.uuid4()),
-                    "role": "user",
-                    "parts": [
-                        {
-                            "kind": "text",
-                            "text": message
-                        }
-                    ],
-                    "context_id": None,
-                    "task_id": None,
-                    "metadata": None,
-                    "reference_task_ids": None,
-                    "extensions": None
-                },
-                "context_id": self.context_id,
-                "metadata": metadata or {
-                    "session_id": self.session_id,
-                    "user_id": "supervisor"
-                }
-            }
+            "params": params
         }
         
         start_time = datetime.now()
@@ -1030,10 +1049,15 @@ pytest tests/ -v  # Run automated tests
                     "duration": duration
                 }
     
-    async def run_full_workflow(self, requirement: str, save_output: bool = True) -> Dict[str, Any]:
+    async def run_full_workflow(self, requirement: str, save_output: bool = True, template_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Run the complete workflow:
         Requirement → BRD → JIRA → Code → Validation
+        
+        Args:
+            requirement: User requirement text
+            save_output: Whether to save output files
+            template_id: Optional template ID for BRD generation
         """
         
         print("\n" + "="*80)
@@ -1042,19 +1066,22 @@ pytest tests/ -v  # Run automated tests
         print(f"Context ID: {self.context_id}")
         print(f"Session ID: {self.session_id}")
         print(f"Requirement: {requirement[:100]}...")
+        if template_id:
+            print(f"Template: {template_id}")
         print("="*80)
         
         workflow_results = {
             "context_id": self.context_id,
             "session_id": self.session_id,
             "requirement": requirement,
+            "template_id": template_id,
             "start_time": datetime.now().isoformat(),
             "steps": []
         }
         
         # Step 1: Generate BRD
         print("\n🔹 STEP 1: Generate BRD from requirement")
-        brd_result = await self.send_task("brd_generator", requirement)
+        brd_result = await self.send_task("brd_generator", requirement, template_id=template_id)
         workflow_results["steps"].append({"step": 1, "agent": "BRD Generator", "result": brd_result})
         
         if not brd_result["success"]:
@@ -1522,9 +1549,41 @@ pytest tests/ -v  # Run automated tests
 async def main():
     """Main entry point"""
     
-    # Get requirement from command line or prompt
-    if len(sys.argv) > 1:
-        requirement = " ".join(sys.argv[1:])
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='BRD-to-Code Supervisor - Orchestrates the complete workflow',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  python supervisor.py "Create an inventory management API"
+  python supervisor.py "Build healthcare system" --template enterprise_brd
+  python supervisor.py "Quick MVP for food app" --template lean_brd
+  python supervisor.py "Internal dashboard" --template custom_project
+
+Available templates:
+  • standard_brd    - General purpose (default, auto-selected)
+  • enterprise_brd  - Government/compliance focused
+  • lean_brd        - Startup/MVP focused
+  • custom_project  - Your custom uploaded templates
+        """
+    )
+    parser.add_argument(
+        'requirement',
+        nargs='*',
+        help='Project requirement description'
+    )
+    parser.add_argument(
+        '--template',
+        '-t',
+        dest='template_id',
+        default=None,
+        help='Template ID to use for BRD generation (e.g., enterprise_brd, lean_brd)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Get requirement from arguments or prompt
+    if args.requirement:
+        requirement = " ".join(args.requirement)
     else:
         print("\n" + "="*80)
         print("🤖 BRD-to-Code Supervisor - Interactive Mode")
@@ -1545,7 +1604,7 @@ async def main():
     supervisor = Supervisor()
     
     try:
-        results = await supervisor.run_full_workflow(requirement)
+        results = await supervisor.run_full_workflow(requirement, template_id=args.template_id)
         supervisor.print_summary(results)
         
         if results["success"]:

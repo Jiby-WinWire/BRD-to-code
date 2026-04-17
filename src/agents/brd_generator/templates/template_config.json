@@ -1,0 +1,61 @@
+{
+  "template_selection_rules": {
+    "rules": [
+      {
+        "keywords": ["government", "federal", "state", "public sector", "agency"],
+        "template": "enterprise_brd",
+        "priority": 11,
+        "description": "Government projects require formal enterprise BRD format"
+      },
+      {
+        "keywords": ["compliance", "regulatory", "audit", "governance", "hipaa", "gdpr", "sox", "pci"],
+        "template": "enterprise_brd",
+        "priority": 10,
+        "description": "Compliance-heavy projects need enterprise documentation"
+      },
+      {
+        "keywords": ["enterprise", "corporation", "large organization", "formal"],
+        "template": "enterprise_brd",
+        "priority": 9,
+        "description": "Enterprise organizations typically require formal BRDs"
+      },
+      {
+        "keywords": ["complex", "mission-critical", "critical system"],
+        "template": "enterprise_brd",
+        "priority": 8,
+        "description": "Complex systems benefit from comprehensive enterprise template"
+      },
+      {
+        "keywords": ["startup", "founded", "new company", "seed stage"],
+        "template": "lean_brd",
+        "priority": 7,
+        "description": "Startups benefit from lean, focused documentation"
+      },
+      {
+        "keywords": ["mvp", "minimum viable product", "prototype", "proof of concept", "poc"],
+        "template": "lean_brd",
+        "priority": 7,
+        "description": "MVPs and prototypes need lightweight requirements"
+      },
+      {
+        "keywords": ["quick", "rapid", "fast", "simple", "lightweight"],
+        "template": "lean_brd",
+        "priority": 6,
+        "description": "Quick projects benefit from lean approach"
+      },
+      {
+        "keywords": ["lean", "agile", "iteration", "sprint"],
+        "template": "lean_brd",
+        "priority": 6,
+        "description": "Agile/lean methodologies align with lean template"
+      }
+    ],
+    "default_template": "standard_brd",
+    "fallback_template": "standard_brd"
+  },
+  "template_descriptions": {
+    "standard_brd": "Balanced, comprehensive BRD for general-purpose projects",
+    "enterprise_brd": "Formal BRD with compliance, governance, and detailed documentation",
+    "lean_brd": "Lightweight BRD focused on MVP, rapid iteration, and core features only"
+  }
+}

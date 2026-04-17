@@ -1,0 +1,78 @@
+{
+  "template_id": "custom_project",
+  "template_name": "custom_project",
+  "description": "Custom project template for internal use",
+  "use_case": "Custom user-defined template",
+  "sections": [
+    {
+      "section_id": "custom_project_template",
+      "title": "Custom Project Template",
+      "required": true,
+      "description": "Custom Project Template section",
+      "subsections": []
+    },
+    {
+      "section_id": "executive_overview",
+      "title": "EXECUTIVE OVERVIEW",
+      "required": true,
+      "description": "EXECUTIVE OVERVIEW section",
+      "subsections": []
+    },
+    {
+      "section_id": "business_objectives",
+      "title": "BUSINESS OBJECTIVES",
+      "required": true,
+      "description": "BUSINESS OBJECTIVES section",
+      "subsections": []
+    },
+    {
+      "section_id": "technical_requirements",
+      "title": "TECHNICAL REQUIREMENTS",
+      "required": true,
+      "description": "TECHNICAL REQUIREMENTS section",
+      "subsections": []
+    },
+    {
+      "section_id": "project_team",
+      "title": "PROJECT TEAM",
+      "required": true,
+      "description": "PROJECT TEAM section",
+      "subsections": []
+    },
+    {
+      "section_id": "timeline_and_milestones",
+      "title": "TIMELINE AND MILESTONES",
+      "required": true,
+      "description": "TIMELINE AND MILESTONES section",
+      "subsections": []
+    },
+    {
+      "section_id": "budget_and_resources",
+      "title": "BUDGET AND RESOURCES",
+      "required": true,
+      "description": "BUDGET AND RESOURCES section",
+      "subsections": []
+    },
+    {
+      "section_id": "quality_assurance",
+      "title": "QUALITY ASSURANCE",
+      "required": true,
+      "description": "QUALITY ASSURANCE section",
+      "subsections": []
+    },
+    {
+      "section_id": "risks_and_mitigation",
+      "title": "RISKS AND MITIGATION",
+      "required": true,
+      "description": "RISKS AND MITIGATION section",
+      "subsections": []
+    }
+  ],
+  "formatting": {
+    "style": "professional",
+    "tone": "business-professional",
+    "length": "comprehensive",
+    "include_diagrams": false,
+    "include_tables": true
+  }
+}

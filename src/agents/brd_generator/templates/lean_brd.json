@@ -1,0 +1,107 @@
+{
+  "template_id": "lean_brd",
+  "template_name": "Lean BRD Template",
+  "description": "Lightweight Business Requirements Document for startups, MVPs, and rapid prototyping",
+  "use_case": "Startups, MVPs, rapid prototyping, agile development, quick iterations, hypothesis-driven development",
+  "sections": [
+    {
+      "section_id": "product_vision",
+      "title": "Product Vision",
+      "required": true,
+      "description": "Clear, concise vision and problem statement",
+      "subsections": [
+        "Problem Statement",
+        "Target Users",
+        "Value Proposition",
+        "Success Vision"
+      ]
+    },
+    {
+      "section_id": "mvp_features",
+      "title": "MVP Features",
+      "required": true,
+      "description": "Core features required for minimum viable product",
+      "subsections": [
+        "Must-Have Features (3-5 core features only)",
+        "User Stories for MVP",
+        "Out of Scope (features for later)"
+      ]
+    },
+    {
+      "section_id": "user_experience",
+      "title": "User Experience",
+      "required": true,
+      "description": "Key user flows and interface requirements",
+      "subsections": [
+        "Primary User Flow",
+        "Key Screens/Pages",
+        "Simple Wireframes or Mockups"
+      ]
+    },
+    {
+      "section_id": "validation_metrics",
+      "title": "Validation Metrics",
+      "required": true,
+      "description": "Hypotheses to test and metrics to measure",
+      "subsections": [
+        "Key Hypotheses to Validate",
+        "Success Metrics (2-3 key metrics)",
+        "Learning Goals",
+        "Pivot Criteria"
+      ]
+    },
+    {
+      "section_id": "technical_approach",
+      "title": "Technical Approach",
+      "required": true,
+      "description": "Lightweight technical requirements",
+      "subsections": [
+        "Technology Stack",
+        "Third-Party Services",
+        "MVP Technical Constraints",
+        "Scalability Considerations (deferred to v2)"
+      ]
+    },
+    {
+      "section_id": "launch_plan",
+      "title": "Launch Plan",
+      "required": true,
+      "description": "Quick path to market",
+      "subsections": [
+        "MVP Timeline (2-4 weeks typical)",
+        "Launch Criteria",
+        "Early User Acquisition Plan",
+        "Feedback Collection Method"
+      ]
+    },
+    {
+      "section_id": "risks_assumptions",
+      "title": "Key Risks & Assumptions",
+      "required": true,
+      "description": "Critical assumptions and biggest risks",
+      "subsections": [
+        "Critical Assumptions (3-5 items)",
+        "Biggest Risks (3-5 items)",
+        "De-risking Strategy"
+      ]
+    },
+    {
+      "section_id": "future_roadmap",
+      "title": "Future Roadmap",
+      "required": false,
+      "description": "Post-MVP features and vision",
+      "subsections": [
+        "Phase 2 Features",
+        "Long-term Vision",
+        "Scaling Plan"
+      ]
+    }
+  ],
+  "formatting": {
+    "style": "concise",
+    "tone": "entrepreneurial-direct",
+    "length": "brief-focused",
+    "include_diagrams": false,
+    "include_tables": false
+  }
+}

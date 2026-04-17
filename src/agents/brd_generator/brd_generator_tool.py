@@ -8,6 +8,7 @@ import re
 import logging
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
+from src.agents.brd_generator.utils import get_template_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +19,10 @@ class BRDGenerationInput(BaseModel):
     """Input schema for BRD generation tool"""
     user_prompt: str = Field(
         description="Natural language description of the software requirements"
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description="Template ID to use (optional, auto-selects if not provided)"
     )
     include_markdown: bool = Field(
         default=True,
@@ -33,6 +38,10 @@ class BRDGenerationOutput(BaseModel):
     brd_markdown: Optional[str] = Field(
         default=None,
         description="BRD in markdown format"
+    )
+    template_id: str = Field(
+        default="standard_brd",
+        description="Template ID used for generation"
     )
     from_cache: bool = Field(
         default=False,
@@ -50,7 +59,8 @@ async def generate_brd_function(
     deployment_name: str,
     memory_manager=None,
     task_id: Optional[str] = None,
-    include_markdown: bool = True
+    include_markdown: bool = True,
+    template_id: Optional[str] = None
 ) -> BRDGenerationOutput:
     """Generate Business Requirements Document from user prompt
     
@@ -61,17 +71,29 @@ async def generate_brd_function(
         memory_manager: Memory manager for caching (optional)
         task_id: Task identifier for tracking
         include_markdown: Whether to generate markdown format
+        template_id: Template ID to use (optional, auto-selects if not provided)
         
     Returns:
         BRDGenerationOutput with JSON and markdown BRD
     """
     logger.info(f"Generating BRD for prompt: {user_prompt[:100]}...")
     
+    # Template selection
+    template_manager = get_template_manager()
+    if template_id is None:
+        template_id = template_manager.auto_select_template(user_prompt)
+    
+    template = template_manager.get_template(template_id)
+    template_instructions = template_manager.get_template_instructions(template_id)
+    
+    logger.info(f"Using template: {template.get('template_name', template_id)} (ID: {template_id})")
+    
     # Check cache first if memory manager is available
     if memory_manager:
         try:
+            # Include template_id in cache key for template-specific caching
             cached = await memory_manager.search_cached_brd(
-                user_prompt=user_prompt,
+                user_prompt=f"{template_id}:{user_prompt}",
                 similarity_threshold=0.85
             )
             if cached:
@@ -79,29 +101,52 @@ async def generate_brd_function(
                 return BRDGenerationOutput(
                     brd_json=json.loads(cached["brd_json"]),
                     brd_markdown=cached.get("brd_markdown"),
+                    template_id=template_id,
                     from_cache=True,
                     similarity_score=cached.get("similarity_score", 0.0)
                 )
         except Exception as e:
             logger.warning(f"Cache check failed, generating fresh: {str(e)}")
     
-    # Generate BRD JSON
+    # Load base system prompt and inject template instructions
     system_prompt_json = (
         "You are a senior business analyst with expertise in software requirements gathering. "
         "Given a user request, generate a comprehensive Business Requirement Document (BRD) in JSON format. "
-        "\n\nThe BRD MUST include these sections:\n"
-        "- title: Clear, concise project title\n"
-        "- description: High-level overview of the project (2-3 paragraphs)\n"
-        "- business_goals: List of strategic business objectives\n"
-        "- functional_requirements: Detailed list of functional capabilities\n"
-        "- non_functional_requirements: Performance, security, scalability requirements\n"
-        "- stakeholders: List of key stakeholders and their roles\n"
-        "- acceptance_criteria: Measurable success criteria\n"
-        "- assumptions: Key assumptions and dependencies\n"
-        "- constraints: Technical, budget, timeline constraints\n"
-        "- risks: Potential risks and mitigation strategies\n"
-        "\nReturn ONLY valid JSON. No markdown code blocks, no explanations, no additional text."
     )
+    
+    # Add template-specific instructions
+    system_prompt_json += template_instructions
+    
+    # Build section list dynamically from template
+    sections = template.get('sections', [])
+    if sections:
+        # Use template-defined sections
+        system_prompt_json += "\n\nThe BRD JSON MUST include these sections as top-level keys:\n"
+        for section in sections:
+            section_id = section.get('section_id', '').lower()
+            title = section.get('title', '')
+            description = section.get('description', '')
+            system_prompt_json += f"- {section_id}: {title}"
+            if description:
+                system_prompt_json += f" ({description})"
+            system_prompt_json += "\n"
+    else:
+        # Fallback to standard BRD structure
+        system_prompt_json += (
+            "\n\nThe BRD JSON MUST include these sections:\n"
+            "- title: Clear, concise project title\n"
+            "- description: High-level overview of the project (2-3 paragraphs)\n"
+            "- business_goals: List of strategic business objectives\n"
+            "- functional_requirements: Detailed list of functional capabilities\n"
+            "- non_functional_requirements: Performance, security, scalability requirements\n"
+            "- stakeholders: List of key stakeholders and their roles\n"
+            "- acceptance_criteria: Measurable success criteria\n"
+            "- assumptions: Key assumptions and dependencies\n"
+            "- constraints: Technical, budget, timeline constraints\n"
+            "- risks: Potential risks and mitigation strategies\n"
+        )
+    
+    system_prompt_json += "\nReturn ONLY valid JSON. No markdown code blocks, no explanations, no additional text."
     
     try:
         # Generate JSON BRD using LangChain invoke
@@ -142,10 +187,11 @@ async def generate_brd_function(
         if memory_manager and task_id:
             try:
                 await memory_manager.cache_brd(
-                    user_prompt=user_prompt,
+                    user_prompt=f"{template_id}:{user_prompt}",  # Include template in cache key
                     brd_json=brd_json,
                     brd_markdown=brd_markdown or "",
-                    task_id=task_id
+                    task_id=task_id,
+                    metadata={"template_id": template_id}
                 )
                 logger.info("BRD cached successfully")
             except Exception as e:
@@ -154,6 +200,7 @@ async def generate_brd_function(
         return BRDGenerationOutput(
             brd_json=brd_json,
             brd_markdown=brd_markdown,
+            template_id=template_id,
             from_cache=False,
             similarity_score=1.0
         )
@@ -291,7 +338,7 @@ def create_brd_generation_tool(llm, deployment_name: str, memory_manager=None):
     """
     from agent_base.tools import ToolClass
     
-    async def tool_function(user_prompt: str, task_id: str = None) -> str:
+    async def tool_function(user_prompt: str, task_id: str = None, template_id: str = None) -> str:
         """Generate BRD from user prompt"""
         result = await generate_brd_function(
             user_prompt=user_prompt,
@@ -299,13 +346,15 @@ def create_brd_generation_tool(llm, deployment_name: str, memory_manager=None):
             deployment_name=deployment_name,
             memory_manager=memory_manager,
             task_id=task_id,
-            include_markdown=True
+            include_markdown=True,
+            template_id=template_id
         )
         
         # Return formatted string result
         output = {
             "brd_json": result.brd_json,
             "brd_markdown": result.brd_markdown,
+            "template_id": result.template_id,
             "from_cache": result.from_cache
         }
         return json.dumps(output, indent=2)
