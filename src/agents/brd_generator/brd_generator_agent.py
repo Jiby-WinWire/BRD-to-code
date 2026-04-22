@@ -77,7 +77,14 @@ class BRDTaskManager(InMemoryTaskManager):
             if not user_query:
                 raise ValueError("No text content found in request")
             
+            # Extract template_id from request metadata (if provided)
+            template_id = None
+            if hasattr(request.params, 'metadata') and request.params.metadata:
+                template_id = request.params.metadata.get('template_id')
+            
             logger.info(f"Processing BRD generation for: {user_query[:100]}...")
+            if template_id:
+                logger.info(f"Using specified template: {template_id}")
             
             # Initialize task status
             status = BRDAgentStatus(
@@ -129,7 +136,8 @@ class BRDTaskManager(InMemoryTaskManager):
             # Generate BRD using agent
             result = await self.agent.generate_brd(
                 user_prompt=user_query,
-                task_id=task_id
+                task_id=task_id,
+                template_id=template_id
             )
             
             # Update status
@@ -145,6 +153,7 @@ class BRDTaskManager(InMemoryTaskManager):
             # Create response message
             response_text = (
                 f"BRD Generated Successfully!\n\n"
+                f"Template Used: {result.get('template_id', 'N/A')}\n"
                 f"Title: {result['brd_json'].get('title', 'N/A')}\n"
                 f"From Cache: {result.get('from_cache', False)}\n\n"
                 f"{result.get('brd_markdown', json.dumps(result['brd_json'], indent=2))}"
@@ -359,16 +368,18 @@ class BRDGeneratorAgent(AgentClass):
     async def generate_brd(
         self,
         user_prompt: str,
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        template_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate BRD from user prompt
         
         Args:
             user_prompt: Natural language requirements
             task_id: Task identifier for tracking
+            template_id: Template ID to use (optional, auto-selects if not provided)
             
         Returns:
-            Dict with brd_json, brd_markdown, from_cache
+            Dict with brd_json, brd_markdown, template_id, from_cache
         """
         logger.info("Invoking BRD generation tool...")
         
@@ -381,12 +392,14 @@ class BRDGeneratorAgent(AgentClass):
             deployment_name=self.deployment_name,
             memory_manager=self.memory_manager,
             task_id=task_id or str(uuid4()),
-            include_markdown=True
+            include_markdown=True,
+            template_id=template_id
         )
         
         return {
             "brd_json": result.brd_json,
             "brd_markdown": result.brd_markdown,
+            "template_id": result.template_id,
             "from_cache": result.from_cache,
             "similarity_score": result.similarity_score
         }

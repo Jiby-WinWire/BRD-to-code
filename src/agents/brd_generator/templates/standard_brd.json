@@ -1,0 +1,120 @@
+{
+  "template_id": "standard_brd",
+  "template_name": "Standard BRD Template",
+  "description": "Comprehensive Business Requirements Document for general-purpose projects",
+  "use_case": "Web applications, mobile apps, software features, standard business projects",
+  "sections": [
+    {
+      "section_id": "title_description",
+      "title": "Title & Description",
+      "required": true,
+      "description": "Project title and high-level overview",
+      "subsections": [
+        "Project Title",
+        "Project Description (2-3 paragraphs)",
+        "Project Vision and Context"
+      ]
+    },
+    {
+      "section_id": "business_goals",
+      "title": "Business Goals",
+      "required": true,
+      "description": "Strategic business objectives and expected outcomes",
+      "subsections": [
+        "Strategic Business Objectives (3-5 items)",
+        "Measurable Outcomes",
+        "Alignment with Organizational Strategy"
+      ]
+    },
+    {
+      "section_id": "functional_requirements",
+      "title": "Functional Requirements",
+      "required": true,
+      "description": "Detailed list of features and capabilities",
+      "subsections": [
+        "User-Facing Functionality (8-15 items)",
+        "System Behaviors",
+        "Core Features",
+        "Process Workflows"
+      ]
+    },
+    {
+      "section_id": "non_functional_requirements",
+      "title": "Non-Functional Requirements",
+      "required": true,
+      "description": "Performance, security, scalability, and quality attributes",
+      "subsections": [
+        "Performance Requirements (response times, throughput)",
+        "Security Considerations",
+        "Scalability and Reliability",
+        "Availability and Disaster Recovery"
+      ]
+    },
+    {
+      "section_id": "stakeholders",
+      "title": "Stakeholders",
+      "required": true,
+      "description": "Key stakeholders and their responsibilities",
+      "subsections": [
+        "Product Owner",
+        "Development Team",
+        "End Users",
+        "Business Sponsors",
+        "Other Stakeholders"
+      ]
+    },
+    {
+      "section_id": "acceptance_criteria",
+      "title": "Acceptance Criteria",
+      "required": true,
+      "description": "Measurable success criteria and definition of done",
+      "subsections": [
+        "Measurable Success Criteria (5-8 items)",
+        "Quality Gates",
+        "Definition of Done"
+      ]
+    },
+    {
+      "section_id": "assumptions",
+      "title": "Assumptions",
+      "required": true,
+      "description": "Key assumptions and dependencies",
+      "subsections": [
+        "Technical Assumptions",
+        "Business Assumptions",
+        "Dependencies on External Systems"
+      ]
+    },
+    {
+      "section_id": "constraints",
+      "title": "Constraints",
+      "required": true,
+      "description": "Limitations and boundaries",
+      "subsections": [
+        "Budget Constraints",
+        "Timeline Limitations",
+        "Technical Constraints",
+        "Regulatory Requirements"
+      ]
+    },
+    {
+      "section_id": "risks",
+      "title": "Risks",
+      "required": true,
+      "description": "Potential risks with mitigation strategies",
+      "subsections": [
+        "Technical Risks",
+        "Business Risks",
+        "Impact Assessment",
+        "Mitigation Strategies"
+      ]
+    }
+  ],
+  "formatting": {
+    "style": "professional",
+    "tone": "business-professional",
+    "length": "comprehensive",
+    "include_diagrams": false,
+    "include_tables": true
+  }
+}

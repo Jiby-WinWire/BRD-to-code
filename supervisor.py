@@ -4,6 +4,7 @@ Chains all 5 agents together: Requirement → BRD → JIRA → Code → Tests �
 
 Usage:
     python supervisor.py "Create an inventory management API with barcode scanning"
+    python supervisor.py "Build healthcare system" --template enterprise_brd
     
 Or run interactively:
     python supervisor.py
@@ -13,6 +14,7 @@ import httpx
 import uuid
 import json
 import sys
+import argparse
 import subprocess
 import re
 from datetime import datetime
@@ -37,6 +39,11 @@ class Supervisor:
         "brd_generator": {
             "name": "BRD Generator",
             "url": "http://localhost:8001",
+            "timeout": 120.0
+        },
+        "arch_generator": {
+            "name": "Architecture Generator",
+            "url": "http://localhost:7000",
             "timeout": 120.0
         },
         "brd_to_jira": {
@@ -590,8 +597,86 @@ sys.path.insert(0, str(api_dir))
         lines.append("=" * 80)
         return "\n".join(lines)
     
-    def write_helper_files(self):
-        """Generate helper files: run.py, requirements.txt, README.md"""
+    def optimize_svg_dimensions(self, svg_content: str) -> str:
+        """Optimize SVG dimensions to reduce excessive width.
+        
+        Args:
+            svg_content: Raw SVG XML content
+            
+        Returns:
+            Optimized SVG content with adjusted viewBox and dimensions
+        """
+        import re
+        
+        try:
+            # GraphViz SVGs use viewBox directly - extract it
+            viewbox_match = re.search(r'viewBox="([^"]+)"', svg_content)
+            width_match = re.search(r'width="(\d+(?:\.\d+)?)(pt|px)?"', svg_content)
+            height_match = re.search(r'height="(\d+(?:\.\d+)?)(pt|px)?"', svg_content)
+            
+            if viewbox_match:
+                # Parse viewBox: "minX minY width height"
+                viewbox_values = viewbox_match.group(1).split()
+                if len(viewbox_values) == 4:
+                    vb_min_x, vb_min_y, vb_width, vb_height = map(float, viewbox_values)
+                    aspect_ratio = abs(vb_width / vb_height) if vb_height != 0 else 1
+                    
+                    if aspect_ratio > 1.3:
+                        logger.info(f"Wide SVG detected (viewBox): {vb_width}x{vb_height} (ratio: {aspect_ratio:.2f})")
+                        
+                        # Fix preserveAspectRatio and add responsive styling
+                        # Change preserveAspectRatio from "none" to "xMidYMid meet" for proper scaling
+                        svg_content = re.sub(
+                            r'preserveAspectRatio="[^"]*"',
+                            'preserveAspectRatio="xMidYMid meet"',
+                            svg_content
+                        )
+                        
+                        # Add style for responsive display
+                        if '<svg ' in svg_content and 'style=' not in svg_content:
+                            svg_content = svg_content.replace(
+                                '<svg ',
+                                '<svg style="max-width: 100%; height: auto; display: block; margin: 0 auto;" ',
+                                1
+                            )
+                        
+                        logger.info("✅ SVG optimized for responsive display (fixed preserveAspectRatio)")
+                    else:
+                        logger.debug(f"SVG aspect ratio OK: {aspect_ratio:.2f}")
+                        
+            elif width_match and height_match:
+                # Fallback for SVGs with explicit width/height
+                width = float(width_match.group(1))
+                height = float(height_match.group(1))
+                unit = width_match.group(2) or 'pt'
+                aspect_ratio = width / height if height > 0 else 1
+                
+                if aspect_ratio > 1.3:
+                    logger.info(f"Wide SVG detected: {width}{unit}x{height}{unit} (ratio: {aspect_ratio:.2f})")
+                    
+                    # Add viewBox and add responsive styling
+                    if 'viewBox=' not in svg_content:
+                        svg_content = svg_content.replace(
+                            '<svg ',
+                            f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="max-width: 100%; height: auto;" ',
+                            1
+                        )
+                    
+                    logger.info("✅ SVG optimized for responsive display")
+                else:
+                    logger.debug(f"SVG aspect ratio OK: {aspect_ratio:.2f}")
+            
+            return svg_content
+        except Exception as e:
+            logger.warning(f"Could not optimize SVG dimensions: {e}")
+            return svg_content
+    
+    def write_helper_files(self, architecture_diagram_url: Optional[str] = None):
+        """Generate helper files: run.py, requirements.txt, README.md
+        
+        Args:
+            architecture_diagram_url: Optional URL to architecture diagram from Architecture Generator Agent
+        """
         
         # run.py - Full-Stack Web App Launcher
         run_py = '''"""Full-Stack Web Application Launcher
@@ -653,9 +738,25 @@ sys.path.insert(0, str(api_dir))
 '''
         
         # README.md - API documentation
-        readme_md = '''# 🚀 Full-Stack Web Application
+        architecture_section = ''
+        if architecture_diagram_url:
+            # architecture_diagram_url can be either a local path or a blob URL
+            # Prefer relative local path for reliability
+            architecture_section = f'''## 🏛️ Architecture Diagram
+
+![Architecture Diagram]({architecture_diagram_url})
+
+[View Full Architecture Diagram]({architecture_diagram_url})
+
+> **Note**: The architecture diagram is saved locally in the `docs/` folder and is also backed up to Azure Blob Storage.
+
+'''
+        
+        readme_md = f'''# 🚀 Full-Stack Web Application
 
 Generated by **BRD-to-Code AI Pipeline** - A complete, production-ready web application!
+
+{architecture_section}
 
 ## 📂 Project Structure
 
@@ -798,8 +899,15 @@ pytest tests/ -v  # Run automated tests
         except Exception as e:
             logger.error(f"Failed to write docs files: {e}")
     
-    async def send_task(self, agent_key: str, message: str, metadata: Optional[Dict] = None) -> Dict[str, Any]:
-        """Send task to an agent using A2A protocol"""
+    async def send_task(self, agent_key: str, message: str, metadata: Optional[Dict] = None, template_id: Optional[str] = None) -> Dict[str, Any]:
+        """Send task to an agent using A2A protocol
+        
+        Args:
+            agent_key: Key identifying the agent to send to
+            message: Message content to send
+            metadata: Optional metadata dictionary
+            template_id: Optional template ID (for BRD generator)
+        """
         
         agent = self.AGENTS[agent_key]
         agent_url = agent["url"]
@@ -809,36 +917,46 @@ pytest tests/ -v  # Run automated tests
         print(f"\n{'='*80}")
         print(f"📤 Sending task to: {agent_name}")
         print(f"   URL: {agent_url}")
+        if template_id:
+            print(f"   Template: {template_id}")
         print(f"{'='*80}")
         
         # Build JSON-RPC request (A2A protocol)
+        params_metadata = metadata or {
+            "session_id": self.session_id,
+            "user_id": "supervisor"
+        }
+        
+        # Add template_id to metadata if provided (for BRD generator)
+        if template_id:
+            params_metadata["template_id"] = template_id
+        
+        params = {
+            "message": {
+                "kind": "message",
+                "message_id": str(uuid.uuid4()),
+                "role": "user",
+                "parts": [
+                    {
+                        "kind": "text",
+                        "text": message
+                    }
+                ],
+                "context_id": None,
+                "task_id": None,
+                "metadata": None,
+                "reference_task_ids": None,
+                "extensions": None
+            },
+            "context_id": self.context_id,
+            "metadata": params_metadata
+        }
+        
         jsonrpc_request = {
             "jsonrpc": "2.0",
             "id": str(uuid.uuid4()),
             "method": "message/send",
-            "params": {
-                "message": {
-                    "kind": "message",
-                    "message_id": str(uuid.uuid4()),
-                    "role": "user",
-                    "parts": [
-                        {
-                            "kind": "text",
-                            "text": message
-                        }
-                    ],
-                    "context_id": None,
-                    "task_id": None,
-                    "metadata": None,
-                    "reference_task_ids": None,
-                    "extensions": None
-                },
-                "context_id": self.context_id,
-                "metadata": metadata or {
-                    "session_id": self.session_id,
-                    "user_id": "supervisor"
-                }
-            }
+            "params": params
         }
         
         start_time = datetime.now()
@@ -869,16 +987,27 @@ pytest tests/ -v  # Run automated tests
                             "duration": duration
                         }
                     
-                    status = task_result.get("status", {})
-                    state = status.get("state", "unknown")
-                    
-                    # Extract message text from parts
-                    message_obj = status.get("message", {})
-                    parts = message_obj.get("parts", [])
+                    # Handle two A2A response formats:
+                    # Format 1 (most agents): result.status.message.parts
+                    # Format 2 (Architecture Generator): result.parts
                     message_response = ""
+                    state = "unknown"
                     
-                    if parts and len(parts) > 0:
-                        message_response = parts[0].get("text", "")
+                    # Try Format 1 first (status-based)
+                    status = task_result.get("status", {})
+                    if status:
+                        state = status.get("state", "unknown")
+                        message_obj = status.get("message", {})
+                        parts = message_obj.get("parts", [])
+                        if parts and len(parts) > 0:
+                            message_response = parts[0].get("text", "")
+                    
+                    # Try Format 2 if Format 1 didn't work (direct parts)
+                    if not message_response and "parts" in task_result:
+                        parts = task_result.get("parts", [])
+                        if parts and len(parts) > 0:
+                            message_response = parts[0].get("text", "")
+                        state = "completed"  # Assume completed if we got parts
                     
                     print(f"✅ {agent_name}: {state}")
                     print(f"   Duration: {duration:.2f}s")
@@ -920,15 +1049,16 @@ pytest tests/ -v  # Run automated tests
                     "duration": duration
                 }
     
-    async def run_full_workflow(self, requirement: str, save_output: bool = True, language: str = "python") -> Dict[str, Any]:
+    async def run_full_workflow(self, requirement: str, save_output: bool = True, language: str = "python", template_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Run the complete workflow:
         Requirement → BRD → JIRA → Code → Validation
         
         Args:
-            requirement: API requirement description
-            save_output: Whether to save output to disk
+            requirement: User requirement text
+            save_output: Whether to save output files
             language: Programming language (python, csharp, dotnet)
+            template_id: Optional template ID for BRD generation
         """
         
         print("\n" + "="*80)
@@ -938,6 +1068,8 @@ pytest tests/ -v  # Run automated tests
         print(f"Session ID: {self.session_id}")
         print(f"Language: {language.upper()}")
         print(f"Requirement: {requirement[:100]}...")
+        if template_id:
+            print(f"Template: {template_id}")
         print("="*80)
         
         workflow_results = {
@@ -945,13 +1077,14 @@ pytest tests/ -v  # Run automated tests
             "session_id": self.session_id,
             "requirement": requirement,
             "language": language,
+            "template_id": template_id,
             "start_time": datetime.now().isoformat(),
             "steps": []
         }
         
         # Step 1: Generate BRD
         print("\n🔹 STEP 1: Generate BRD from requirement")
-        brd_result = await self.send_task("brd_generator", requirement)
+        brd_result = await self.send_task("brd_generator", requirement, template_id=template_id)
         workflow_results["steps"].append({"step": 1, "agent": "BRD Generator", "result": brd_result})
         
         if not brd_result["success"]:
@@ -963,6 +1096,168 @@ pytest tests/ -v  # Run automated tests
         # Parse BRD markdown to structured JSON
         logger.info("📋 Parsing BRD markdown to structured JSON...")
         brd_json = self.parse_brd_to_json(brd_text)
+        
+        # Step 1.5: Generate Architecture Diagram from BRD
+        print("\n🔹 STEP 1.5: Generate Architecture Diagram from BRD")
+        arch_metadata = {
+            "output_format": "svg",  # Use SVG to avoid PNG conversion dependencies (rsvg-convert, ImageMagick)
+            "session_id": self.session_id,
+            "user_id": "supervisor",
+            "blob_container": "architecture-diagrams",
+            "render_hints": {
+                "layout": "TB",  # Top-to-Bottom layout (vertical) instead of left-to-right
+                "rankdir": "TB",  # GraphViz rankdir parameter
+                "ranksep": "0.5",  # Vertical spacing between ranks
+                "nodesep": "0.3",  # Horizontal spacing between nodes
+                "compact": True  # Request compact layout
+            }
+        }
+        arch_result = await self.send_task("arch_generator", brd_text, metadata=arch_metadata)
+        workflow_results["steps"].append({"step": 1.5, "agent": "Architecture Generator", "result": arch_result})
+        
+        if arch_result["success"]:
+            # Extract diagram metadata from response
+            try:
+                import re
+                response_text = arch_result.get("message", "")
+                logger.debug(f"Architecture Generator response length: {len(response_text)} chars")
+                
+                if response_text:
+                    metadata_match = re.search(r'<!-- DIAGRAM_METADATA: ({.*?}) -->', response_text, re.DOTALL)
+                    if metadata_match:
+                        diagram_metadata = json.loads(metadata_match.group(1))
+                        diagram_url = diagram_metadata.get("diagram_url") or diagram_metadata.get("diagram_data")
+                        nodes_count = diagram_metadata.get("nodes_count", 0)
+                        edges_count = diagram_metadata.get("edges_count", 0)
+                        
+                        if diagram_url:
+                            print(f"   ✅ Architecture diagram generated: {nodes_count} nodes, {edges_count} edges")
+                            logger.info(f"Architecture diagram: {diagram_url[:80]}...")
+                            
+                            # Save diagram locally to docs folder for reliable access
+                            try:
+                                import base64
+                                import httpx
+                                docs_dir = self.output_dir / "docs"
+                                docs_dir.mkdir(parents=True, exist_ok=True)
+                                
+                                # Check if diagram_data is available (base64 encoded or raw SVG)
+                                diagram_data = diagram_metadata.get("diagram_data")
+                                saved_locally = False
+                                
+                                if diagram_data:
+                                    # Try to decode if it's base64
+                                    try:
+                                        if diagram_metadata.get("output_format") == "svg":
+                                            # For SVG, check if it's base64 or raw
+                                            if not diagram_data.strip().startswith('<'):
+                                                # It's base64, decode it
+                                                svg_content = base64.b64decode(diagram_data).decode('utf-8')
+                                            else:
+                                                # It's raw SVG
+                                                svg_content = diagram_data
+                                            
+                                            # Optimize SVG dimensions for better display
+                                            svg_content = self.optimize_svg_dimensions(svg_content)
+                                            
+                                            local_svg_path = docs_dir / "architecture_diagram.svg"
+                                            local_svg_path.write_text(svg_content, encoding='utf-8')
+                                            logger.info(f"✅ Saved architecture diagram locally: {local_svg_path}")
+                                            saved_locally = True
+                                            
+                                            # Use local path as primary, blob URL as fallback
+                                            workflow_results["architecture_diagram_local"] = "docs/architecture_diagram.svg"
+                                            workflow_results["architecture_diagram_blob_url"] = diagram_url
+                                        else:
+                                            # For PNG, save binary
+                                            png_content = base64.b64decode(diagram_data)
+                                            local_png_path = docs_dir / "architecture_diagram.png"
+                                            local_png_path.write_bytes(png_content)
+                                            logger.info(f"✅ Saved architecture diagram locally: {local_png_path}")
+                                            saved_locally = True
+                                            workflow_results["architecture_diagram_local"] = "docs/architecture_diagram.png"
+                                            workflow_results["architecture_diagram_blob_url"] = diagram_url
+                                    except Exception as decode_err:
+                                        logger.warning(f"Could not decode diagram data: {decode_err}")
+                                
+                                # If no diagram_data or decoding failed, try fetching from blob URL
+                                if not saved_locally and diagram_url.startswith('http'):
+                                    try:
+                                        logger.info("Fetching diagram from blob URL to save locally...")
+                                        async with httpx.AsyncClient(timeout=30.0) as client:
+                                            response = await client.get(diagram_url)
+                                            response.raise_for_status()
+                                            
+                                            # Check content type
+                                            content = response.content
+                                            content_type = response.headers.get('content-type', '')
+                                            
+                                            # Determine file type from URL or content-type
+                                            is_svg = 'svg' in content_type or diagram_url.endswith('.svg') or 'svg' in diagram_url
+                                            is_png = 'png' in content_type or diagram_url.endswith('.png') or 'png' in diagram_url
+                                            
+                                            if is_svg:
+                                                # Try to decode as SVG text
+                                                try:
+                                                    svg_content = content.decode('utf-8')
+                                                    # If it doesn't start with <, it might be base64
+                                                    if not svg_content.strip().startswith('<'):
+                                                        svg_content = base64.b64decode(content).decode('utf-8')
+                                                except:
+                                                    # Fallback: try base64 decode
+                                                    try:
+                                                        svg_content = base64.b64decode(content).decode('utf-8')
+                                                    except:
+                                                        # Last resort: treat as UTF-8
+                                                        svg_content = content.decode('utf-8', errors='ignore')
+                                                
+                                                # Optimize SVG dimensions for better display
+                                                svg_content = self.optimize_svg_dimensions(svg_content)
+                                                
+                                                local_svg_path = docs_dir / "architecture_diagram.svg"
+                                                local_svg_path.write_text(svg_content, encoding='utf-8')
+                                                logger.info(f"✅ Downloaded and saved diagram locally: {local_svg_path}")
+                                                saved_locally = True
+                                                workflow_results["architecture_diagram_local"] = "docs/architecture_diagram.svg"
+                                                workflow_results["architecture_diagram_blob_url"] = diagram_url
+                                            elif is_png:
+                                                local_png_path = docs_dir / "architecture_diagram.png"
+                                                local_png_path.write_bytes(content)
+                                                logger.info(f"✅ Downloaded and saved diagram locally: {local_png_path}")
+                                                saved_locally = True
+                                                workflow_results["architecture_diagram_local"] = "docs/architecture_diagram.png"
+                                                workflow_results["architecture_diagram_blob_url"] = diagram_url
+                                            else:
+                                                logger.warning(f"Could not determine file type from URL or content-type: {content_type}")
+                                                workflow_results["architecture_diagram_url"] = diagram_url
+                                    except Exception as fetch_err:
+                                        logger.warning(f"Could not fetch diagram from blob URL: {fetch_err}")
+                                        # Fall back to blob URL only
+                                        workflow_results["architecture_diagram_url"] = diagram_url
+                                else:
+                                    # Only blob URL available, no HTTP fetch needed
+                                    if not saved_locally:
+                                        workflow_results["architecture_diagram_url"] = diagram_url
+                                    
+                                workflow_results["architecture_diagram_metadata"] = diagram_metadata
+                            except Exception as save_err:
+                                logger.warning(f"Could not save diagram locally: {save_err}")
+                                workflow_results["architecture_diagram_url"] = diagram_url
+                                workflow_results["architecture_diagram_metadata"] = diagram_metadata
+                        else:
+                            print(f"   ⚠️  Architecture diagram generated but no URL/data returned")
+                    else:
+                        logger.warning(f"No DIAGRAM_METADATA found in response: {response_text[:200]}")
+                        print(f"   ⚠️  Could not extract diagram metadata from response")
+                else:
+                    logger.warning("Architecture Generator returned empty message")
+                    print(f"   ⚠️  Architecture Generator returned empty response")
+            except Exception as e:
+                logger.warning(f"Failed to parse architecture diagram metadata: {e}")
+                print(f"   ⚠️  Warning: Could not parse diagram metadata ({str(e)[:50]})")
+        else:
+            print(f"   ⚠️  Architecture diagram generation failed: {arch_result.get('error', 'Unknown error')}")
+            logger.warning(f"Architecture generation failed: {arch_result.get('error', 'Unknown error')}")
         
         # Step 2: Convert BRD to JIRA tickets
         print("\n🔹 STEP 2: Convert BRD to JIRA tickets")
@@ -980,6 +1275,9 @@ pytest tests/ -v  # Run automated tests
         
         # Extract JSON from JIRA output (may have header text)
         jira_json_text = jira_text
+        logger.info(f"📋 JIRA response length: {len(jira_text)} chars")
+        logger.info(f"📋 JIRA response preview: {jira_text[:200]}...")
+        
         try:
             # Try to find JSON array in the text
             json_match = re.search(r'\[.*\]', jira_text, re.DOTALL)
@@ -987,15 +1285,23 @@ pytest tests/ -v  # Run automated tests
                 jira_json_text = json_match.group(0)
                 # Validate it's proper JSON
                 json.loads(jira_json_text)
+                logger.info(f"✅ Extracted JSON array: {len(jira_json_text)} chars")
             else:
                 # If no array found, try to find JSON object
                 json_match = re.search(r'\{.*\}', jira_text, re.DOTALL)
                 if json_match:
                     jira_json_text = json_match.group(0)
                     json.loads(jira_json_text)
-        except:
+                    logger.info(f"✅ Extracted JSON object: {len(jira_json_text)} chars")
+                else:
+                    logger.warning("⚠️ No JSON found in JIRA response, using full text")
+        except Exception as e:
             # If parsing fails, send original text
+            logger.warning(f"⚠️ JSON parsing failed: {e}, using original text")
             pass
+        
+        logger.info(f"📤 Sending to Code to Test: {len(jira_json_text)} chars")
+        logger.info(f"📤 Preview: {jira_json_text[:200]}...")
         
         # ENHANCED: Retry loop for code + test generation with validation
         retry_count = 0
@@ -1137,8 +1443,14 @@ pytest tests/ -v  # Run automated tests
         workflow_results["end_time"] = datetime.now().isoformat()
         
         # Calculate success: all critical steps succeeded AND code validation passed
-        basic_success = all(step["result"]["success"] for step in workflow_results["steps"][:4])
-        code_step = workflow_results["steps"][2]  # Step 3 is code generation (index 2)
+        # Note: Step indexes after Architecture Generator (step 1.5):
+        # 0: BRD Generator
+        # 1: Architecture Generator  
+        # 2: BRD to JIRA
+        # 3: Code to Test (the one we need to check!)
+        # 4: Validation
+        basic_success = all(step["result"]["success"] for step in workflow_results["steps"][:5])  # Check first 5 critical steps
+        code_step = workflow_results["steps"][3]  # Step 3 is code generation (was index 2 before arch generator)
         code_validation_passed = code_step.get("validation_passed", False)
         workflow_results["success"] = basic_success and code_validation_passed
         workflow_results["code_validation_passed"] = code_validation_passed
@@ -1156,7 +1468,13 @@ pytest tests/ -v  # Run automated tests
             
             # Generate helper files (run.py, requirements.txt, README.md)
             print(f"📝 Generating helper files...")
-            self.write_helper_files()
+            # Prefer local diagram path for reliability, fall back to blob URL
+            arch_diagram_url = (
+                workflow_results.get("architecture_diagram_local") or 
+                workflow_results.get("architecture_diagram_url") or
+                workflow_results.get("architecture_diagram_blob_url")
+            )
+            self.write_helper_files(architecture_diagram_url=arch_diagram_url)
             
             # Save validation report
             validation_file = self.output_dir / "validation_report.md"
@@ -1243,10 +1561,49 @@ pytest tests/ -v  # Run automated tests
 async def main():
     """Main entry point"""
     
-    # Get requirement from command line or prompt
-    if len(sys.argv) > 1:
-        requirement = " ".join(sys.argv[1:])
-        language = "python"  # Default to Python if provided via CLI
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='BRD-to-Code Supervisor - Orchestrates the complete workflow',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  python supervisor.py "Create an inventory management API"
+  python supervisor.py "Build healthcare system" --template enterprise_brd
+  python supervisor.py "Quick MVP for food app" --template lean_brd
+  python supervisor.py "Internal dashboard" --template custom_project
+
+Available templates:
+  • standard_brd    - General purpose (default, auto-selected)
+  • enterprise_brd  - Government/compliance focused
+  • lean_brd        - Startup/MVP focused
+  • custom_project  - Your custom uploaded templates
+        """
+    )
+    parser.add_argument(
+        'requirement',
+        nargs='*',
+        help='Project requirement description'
+    )
+    parser.add_argument(
+        '--template',
+        '-t',
+        dest='template_id',
+        default=None,
+        help='Template ID to use for BRD generation (e.g., enterprise_brd, lean_brd)'
+    )
+    parser.add_argument(
+        '--language',
+        '-l',
+        dest='language',
+        default='python',
+        choices=['python', 'csharp', 'dotnet'],
+        help='Programming language for code generation (default: python)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Get requirement from arguments or prompt
+    if args.requirement:
+        requirement = " ".join(args.requirement)
     else:
         print("\n" + "="*80)
         print("🤖 BRD-to-Code Supervisor - Interactive Mode")
@@ -1286,7 +1643,7 @@ async def main():
     supervisor = Supervisor()
     
     try:
-        results = await supervisor.run_full_workflow(requirement, language=language)
+        results = await supervisor.run_full_workflow(requirement, language=args.language, template_id=args.template_id)
         supervisor.print_summary(results)
         
         if results["success"]:

@@ -1,0 +1,173 @@
+{
+  "template_id": "enterprise_brd",
+  "template_name": "Enterprise BRD Template",
+  "description": "Formal Business Requirements Document for government and large enterprise projects",
+  "use_case": "Government agencies, large corporations, regulated industries, compliance-heavy projects, formal documentation requirements",
+  "sections": [
+    {
+      "section_id": "document_control",
+      "title": "Document Control",
+      "required": true,
+      "description": "Version tracking, approval workflow, and change history",
+      "subsections": [
+        "Document Version and Status",
+        "Approval Signatures",
+        "Change History Table",
+        "Distribution List"
+      ]
+    },
+    {
+      "section_id": "executive_summary",
+      "title": "Executive Summary",
+      "required": true,
+      "description": "High-level overview for executive stakeholders",
+      "subsections": [
+        "Business Context",
+        "Strategic Alignment",
+        "Expected Business Value",
+        "Investment Summary"
+      ]
+    },
+    {
+      "section_id": "business_objectives",
+      "title": "Business Objectives",
+      "required": true,
+      "description": "Strategic goals and measurable outcomes",
+      "subsections": [
+        "Primary Objectives",
+        "Success Metrics (KPIs)",
+        "Business Benefits",
+        "Return on Investment (ROI)"
+      ]
+    },
+    {
+      "section_id": "functional_requirements",
+      "title": "Functional Requirements",
+      "required": true,
+      "description": "Detailed functional capabilities with traceability",
+      "subsections": [
+        "Requirements Table (ID, Description, Priority, Rationale)",
+        "Use Case Diagrams",
+        "User Stories",
+        "Requirements Traceability Matrix"
+      ]
+    },
+    {
+      "section_id": "non_functional_requirements",
+      "title": "Non-Functional Requirements",
+      "required": true,
+      "description": "Performance, security, compliance, and quality attributes",
+      "subsections": [
+        "Performance Requirements",
+        "Security Requirements",
+        "Compliance Requirements (HIPAA, GDPR, SOC2, etc.)",
+        "Availability and Reliability (99.9% uptime)",
+        "Scalability Requirements"
+      ]
+    },
+    {
+      "section_id": "compliance_governance",
+      "title": "Compliance and Governance",
+      "required": true,
+      "description": "Regulatory compliance and governance framework",
+      "subsections": [
+        "Regulatory Requirements",
+        "Data Privacy and Protection",
+        "Audit Trail Requirements",
+        "Governance Framework",
+        "Compliance Reporting"
+      ]
+    },
+    {
+      "section_id": "stakeholders",
+      "title": "Stakeholders and Roles",
+      "required": true,
+      "description": "Key stakeholders, RACI matrix, and responsibilities",
+      "subsections": [
+        "Executive Sponsors",
+        "Business Owners",
+        "RACI Matrix (Responsible, Accountable, Consulted, Informed)",
+        "Communication Plan"
+      ]
+    },
+    {
+      "section_id": "acceptance_criteria",
+      "title": "Acceptance Criteria",
+      "required": true,
+      "description": "Specific, testable acceptance criteria for project completion",
+      "subsections": [
+        "Functional Acceptance Criteria",
+        "Non-Functional Acceptance Criteria",
+        "User Acceptance Testing (UAT) Plan",
+        "Sign-off Criteria"
+      ]
+    },
+    {
+      "section_id": "assumptions_dependencies",
+      "title": "Assumptions and Dependencies",
+      "required": true,
+      "description": "Project assumptions and external dependencies",
+      "subsections": [
+        "Business Assumptions",
+        "Technical Assumptions",
+        "External Dependencies",
+        "Integration Dependencies"
+      ]
+    },
+    {
+      "section_id": "constraints",
+      "title": "Constraints",
+      "required": true,
+      "description": "Budget, timeline, technical, and regulatory constraints",
+      "subsections": [
+        "Budget Constraints",
+        "Timeline and Milestones",
+        "Technical Constraints (Legacy Systems, Platform Requirements)",
+        "Regulatory Constraints"
+      ]
+    },
+    {
+      "section_id": "risks",
+      "title": "Risk Analysis",
+      "required": true,
+      "description": "Identified risks with impact assessment and mitigation strategies",
+      "subsections": [
+        "Risk Register",
+        "Risk Probability and Impact Matrix",
+        "Mitigation Strategies",
+        "Contingency Plans"
+      ]
+    },
+    {
+      "section_id": "implementation_plan",
+      "title": "Implementation Approach",
+      "required": false,
+      "description": "High-level implementation strategy and phases",
+      "subsections": [
+        "Implementation Phases",
+        "Deployment Strategy",
+        "Training Plan",
+        "Change Management"
+      ]
+    },
+    {
+      "section_id": "appendices",
+      "title": "Appendices",
+      "required": false,
+      "description": "Supporting documents and references",
+      "subsections": [
+        "Glossary of Terms",
+        "Referenced Documents",
+        "Data Models",
+        "Wireframes/Mockups"
+      ]
+    }
+  ],
+  "formatting": {
+    "style": "formal",
+    "tone": "professional-executive",
+    "length": "comprehensive-detailed",
+    "include_diagrams": true,
+    "include_tables": true
+  }
+}

@@ -80,8 +80,14 @@ from services import *
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse(request, "index.html", {})
 ```
-  * HTML routes: @app.get("/", response_class=HTMLResponse) that return templates.TemplateResponse()
+  * HTML routes: Use CORRECT TemplateResponse syntax: templates.TemplateResponse(request, "template.html", {})
+    - NEVER use old syntax: templates.TemplateResponse("template.html", {"request": request}) ❌
+    - ALWAYS use new syntax: templates.TemplateResponse(request, "template.html", {}) ✅
   * API routes: @app.post("/api/items", status_code=201) that accept Pydantic models
 - HTML templates:
   * Use Bootstrap 5 or Tailwind CSS for professional styling
@@ -308,7 +314,7 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {})
 
 @app.get("/api/tasks")
 async def get_tasks():
