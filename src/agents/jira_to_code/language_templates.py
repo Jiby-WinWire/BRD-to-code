@@ -3,35 +3,7 @@ Language-specific code generation templates and prompts.
 Supports multiple programming languages and frameworks.
 """
 
-from typing import Dict
-
-# Language definitions with file extensions, frameworks, and syntax info
-LANGUAGE_CONFIGS = {
-    "python": {
-        "name": "Python",
-        "enabled": True,
-        "framework": "FastAPI",
-        "extensions": [".py"],
-        "test_framework": "pytest",
-        "description": "FastAPI backend with Pydantic models"
-    },
-    "csharp": {
-        "name": "C#",
-        "enabled": True,
-        "framework": "ASP.NET Core",
-        "extensions": [".cs"],
-        "test_framework": "NUnit",
-        "description": "ASP.NET Core backend with Entity Framework"
-    },
-    "dotnet": {
-        "name": ".NET",
-        "enabled": True,
-        "framework": "ASP.NET Core",
-        "extensions": [".cs"],
-        "test_framework": "xUnit",
-        "description": ".NET 8 ASP.NET Core Web API"
-    }
-}
+from src.agents.language_config import LANGUAGE_CONFIGS
 
 
 def get_system_prompt_for_language(language: str) -> str:

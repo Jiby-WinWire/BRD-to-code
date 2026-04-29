@@ -1,6 +1,7 @@
 """C# .NET Code Generator - Produces production-ready ASP.NET Core + Entity Framework code"""
 
 from typing import Dict, List, Any
+from src.agents.base_code_generator import BaseCodeGenerator
 import logging
 import json
 from pathlib import Path
@@ -8,9 +9,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-class CSharpCodeGenerator:
+class CSharpCodeGenerator(BaseCodeGenerator):
     """Generates production-ready C# .NET code from user stories"""
-    
+
     @staticmethod
     def generate_from_stories(stories: List[Dict], llm_client, deployment_name: str) -> Dict[str, str]:
         """

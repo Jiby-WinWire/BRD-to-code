@@ -1,5 +1,5 @@
 # A2A SDK for agent-to-agent communication
-a2a-sdk[http-server]>=0.3.11
+a2a-sdk[http-server]==0.3.11
 
 # LangChain and LangGraph
 langchain-core>=0.1.0
@@ -38,3 +38,4 @@ requests>=2.31.0
 # Web UI dependencies
 streamlit>=1.30.0
 streamlit-sortables>=0.2.0
+mem0ai

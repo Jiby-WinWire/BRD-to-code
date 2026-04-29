@@ -12,6 +12,7 @@ import asyncio
 import httpx
 import uuid
 import json
+
 import sys
 import subprocess
 import re
@@ -19,6 +20,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Literal
 from pathlib import Path
 import logging
+from src.agents.code_generator_registry import CodeGeneratorRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("supervisor_language")
@@ -64,34 +66,34 @@ class SupervisorWithLanguage:
             # Step 1: Generate BRD
             logger.info("📋 Step 1: Generating Business Requirements Document...")
             brd_result = await self._call_agent("brd_generator", {"prompt": user_prompt})
-            
-            if not brd_result:
-                logger.error("Failed to generate BRD")
+                if not brd_result or "brd" not in brd_result:
+                    logger.error("Failed to generate BRD. Please check the BRD agent service or input.")
+                    return {"success": False, "error": "BRD generation failed. Please check the BRD agent service or input."}
                 return {"success": False, "error": "BRD generation failed"}
             
             brd_json = brd_result.get("brd", {})
             self.results["brd"] = brd_json
             
             # Step 2: Convert to JIRA stories
-            logger.info("📝 Step 2: Converting BRD to JIRA stories...")
-            jira_result = await self._call_agent("brd_to_jira", {"brd": json.dumps(brd_json)})
-            
+                if not jira_result or "stories" not in jira_result:
+                    logger.error("Failed to generate JIRA stories. Please check the JIRA agent service.")
+                    return {"success": False, "error": "JIRA generation failed. Please check the JIRA agent service."}
             if not jira_result:
                 logger.error("Failed to generate JIRA stories")
                 return {"success": False, "error": "JIRA generation failed"}
             
             stories = jira_result.get("stories", [])
             self.results["stories"] = stories
-            
-            # Step 3: Generate code (Python or C#/.NET)
-            logger.info(f"[GENERATING] Step 3: Generating {self.language.upper()} code...")
-            code_result = await self._generate_code(stories)
-            
-            # Check if generation actually failed (None) vs empty dict (OK)
-            if code_result is None:
-                logger.error(f"Failed to generate {self.language} code")
-                # Last resort fallback
-                if self.language == "python":
+                if code_result is None:
+                    logger.error(f"Failed to generate {self.language} code. Falling back to demo sample.")
+                    # Last resort fallback
+                    if self.language == "python":
+                        code_result = self._get_demo_python_code()
+                    else:
+                        code_result = self._get_demo_csharp_code()
+                if not code_result or not isinstance(code_result, dict):
+                    logger.error(f"No valid code generated for {self.language}. Please check the code generator or input.")
+                    return {"success": False, "error": f"{self.language} code generation failed. Please check the code generator or input."}
                     code_result = self._get_demo_python_code()
                 else:
                     code_result = self._get_demo_csharp_code()
@@ -110,7 +112,7 @@ class SupervisorWithLanguage:
             
             return {
                 "success": True,
-                "output_dir": str(self.output_dir),
+                logger.error(f"Workflow failed: {str(e)}", exc_info=True)
                 "language": self.language,
                 "files": files_written,
                 "instructions": instructions
@@ -121,13 +123,13 @@ class SupervisorWithLanguage:
             return {"success": False, "error": str(e)}
     
     async def _generate_code(self, stories: List[Dict]) -> Optional[Dict[str, str]]:
-        """Generate code based on language selection"""
-        if self.language == "python":
-            return await self._generate_python_code(stories)
-        elif self.language == "csharp":
-            return await self._generate_csharp_code(stories)
-        else:
-            logger.error(f"Unknown language: {self.language}")
+        """Generate code based on language selection using the registry"""
+        try:
+            generator_cls = CodeGeneratorRegistry.get_generator(self.language)
+            # If the generator expects async, adapt here (current ones are sync)
+            return generator_cls.generate_from_stories(stories)
+        except Exception as e:
+            logger.error(f"Code generation error for language {self.language}: {str(e)}")
             return None
     
     async def _generate_python_code(self, stories: List[Dict]) -> Optional[Dict[str, str]]:
@@ -406,21 +408,37 @@ Razor Views: https://learn.microsoft.com/en-us/aspnet/core/mvc/views/razor
         return instructions
     
     async def _call_agent(self, agent_name: str, payload: Dict, optional: bool = False) -> Optional[Dict]:
-        """Call an agent via HTTP (stub, would need actual implementation)"""
-        if agent_name not in self.AGENTS and not optional:
-            logger.error(f"Agent {agent_name} not found")
+        """Call an agent microservice via HTTP POST (real HTTP call)"""
+        agent = self.AGENTS.get(agent_name)
+        if not agent:
+            logger.error(f"Unknown agent: {agent_name}")
+            if optional:
+                return None
             return None
-        
-        # This is a stub - actual implementation would call real agents
-        logger.info(f"  - Called {self.AGENTS.get(agent_name, {}).get('name', agent_name)}")
-        
-        # For now, return mock data
-        if agent_name == "brd_generator":
-            return {"brd": {"title": "App", "description": "Generated BRD", "requirements": []}}
-        elif agent_name == "brd_to_jira":
-            return {"stories": [{"title": "Feature", "description": "Generated Story"}]}
-        
-        return None
+        url = agent["url"] + "/run"
+        timeout = agent["timeout"]
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, json=payload)
+                if response.status_code == 200:
+                    logger.info(f"Agent {agent_name} call succeeded")
+                    return response.json()
+                else:
+                    logger.warning(f"Agent {agent_name} call failed: {response.status_code} - {response.text}")
+                    if optional:
+                        return None
+                    response.raise_for_status()
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request error for agent {agent_name}: {str(e)}")
+            if optional:
+                return None
+            return None
+        except Exception as e:
+            logger.error(f"Agent {agent_name} call error: {str(e)}")
+            if optional:
+                return None
+            return None
     
     def _get_demo_python_code(self) -> Dict[str, str]:
         """Return demo Python FastAPI code when LLM is not available"""

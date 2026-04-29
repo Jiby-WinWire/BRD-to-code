@@ -170,15 +170,27 @@ class CodeToTestTaskManager(InMemoryTaskManager):
             return SendTaskResponse(id=request.id, result=task)
 
     def _parse_stories(self, raw_text: str) -> List[Dict[str, Any]]:
+        import re
         try:
-            payload = json.loads(raw_text)
-            if isinstance(payload, dict) and "stories" in payload:
-                return payload["stories"]
-            if isinstance(payload, list):
-                return payload
+            # Try direct JSON parse first
+            try:
+                payload = json.loads(raw_text)
+                if isinstance(payload, dict) and "stories" in payload:
+                    return payload["stories"]
+                if isinstance(payload, list):
+                    return payload
+            except json.JSONDecodeError:
+                # Fallback: extract JSON array from mixed text
+                match = re.search(r'(\[.*\])', raw_text, re.DOTALL)
+                if match:
+                    json_text = match.group(1)
+                    payload = json.loads(json_text)
+                    if isinstance(payload, list):
+                        return payload
+                raise ValueError("Unable to parse JSON stories from task request payload")
             raise ValueError("JSON payload must contain a list of stories or a top-level 'stories' key")
-        except json.JSONDecodeError:
-            raise ValueError("Unable to parse JSON stories from task request payload")
+        except Exception as e:
+            raise ValueError("Unable to parse JSON stories from task request payload") from e
 
 
 class CodeToTestAgent(AgentClass):

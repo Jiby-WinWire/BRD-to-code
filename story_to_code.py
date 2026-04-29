@@ -4,6 +4,7 @@ import logging
 import json
 from pathlib import Path
 from src.infrastructure.azure_clients import get_llm_client, get_llm_deployment_name
+from src.agents.python_code_generator import PythonCodeGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def stories_to_fastapi_code(stories: List[Dict]) -> Dict[str, str]:
         logger.info("⚠️  Azure OpenAI not configured, using template generation")
     
     # Fallback to template-based generation
-    return _generate_from_templates(stories_to_process)
+    return PythonCodeGenerator.generate_from_stories(stories)
 
 
 def _generate_with_llm(stories_to_process: List[Dict], llm, deployment_name: str) -> Dict[str, str]:
