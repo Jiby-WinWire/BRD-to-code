@@ -2,12 +2,29 @@
 Supervisor - Orchestrates the complete BRD-to-Code workflow
 Chains all 5 agents together: Requirement → BRD → JIRA → Code → Tests → Validation
 
+Enhanced with LangGraph for HITL, Memory (mem0), and Multi-Language Support!
+
 Usage:
+    # Basic usage (backward compatible)
     python supervisor.py "Create an inventory management API with barcode scanning"
-    python supervisor.py "Build healthcare system" --template enterprise_brd
     
-Or run interactively:
-    python supervisor.py
+    # With HITL (Human-in-the-Loop) using LangGraph
+    python supervisor.py "Create API" --hitl --hitl-mode smart
+    
+    # With Memory (mem0)
+    python supervisor.py "Create API" --memory --user-id john
+    
+    # With C# language
+    python supervisor.py "Create API" --language csharp
+    
+    # With all features + LangGraph visualization
+    python supervisor.py "Create API" --hitl --memory --language python --user-id john
+    
+    # Interactive mode
+    python supervisor.py --interactive
+    
+    # Use LangGraph workflow (recommended for HITL)
+    python supervisor.py "Create API" --hitl --use-langgraph
 """
 import asyncio
 import httpx
@@ -18,9 +35,22 @@ import argparse
 import subprocess
 import re
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TypedDict
 from pathlib import Path
 import logging
+from dataclasses import dataclass
+
+# LangGraph imports for enhanced workflow management
+try:
+    from langgraph.graph import StateGraph, END
+    from langgraph.checkpoint.memory import MemorySaver
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_AVAILABLE = False
+    logger.warning("⚠️  LangGraph not available. Install with: pip install langgraph")
+
+# Add project paths for feature imports
+sys.path.insert(0, str(Path(__file__).parent / "src" / "agents"))
 
 # Configure logging
 logging.basicConfig(
@@ -28,6 +58,64 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("supervisor")
+
+
+@dataclass
+class SupervisorConfig:
+    """Configuration for the supervisor with optional features"""
+    # Core settings
+    language: str = "python"  # python, csharp, or dotnet
+    save_output: bool = True
+    template_id: Optional[str] = None
+    
+    # HITL settings
+    enable_hitl: bool = False
+    hitl_interactive: bool = True
+    hitl_auto_approve_threshold: float = 0.9
+    hitl_learn_from_interactions: bool = True
+    
+    # Memory settings
+    enable_memory: bool = False
+    user_id: str = "default_user"
+    
+    # LangGraph settings
+    use_langgraph: bool = False  # Use LangGraph workflow orchestration
+    generate_graph_viz: bool = True  # Generate workflow visualization
+    
+    # Agent settings
+    max_retries: int = 3
+
+
+# LangGraph State Definition
+class WorkflowState(TypedDict):
+    """State for LangGraph workflow"""
+    # Input
+    requirement: str
+    language: str
+    template_id: Optional[str]
+    
+    # Context
+    context_id: str
+    session_id: str
+    user_id: str
+    
+    # Agent results
+    brd_result: Optional[Dict[str, Any]]
+    arch_result: Optional[Dict[str, Any]]
+    jira_result: Optional[Dict[str, Any]]
+    code_result: Optional[Dict[str, Any]]
+    validation_result: Optional[Dict[str, Any]]
+    
+    # HITL tracking
+    human_approvals: List[Dict[str, Any]]
+    human_feedback: List[str]
+    
+    # Workflow metadata
+    current_step: str
+    steps_completed: List[str]
+    errors: List[str]
+    start_time: str
+    end_time: Optional[str]
 
 
 class Supervisor:
@@ -68,11 +156,612 @@ class Supervisor:
         }
     }
     
-    def __init__(self):
+    def __init__(self, config: Optional[SupervisorConfig] = None):
+        """
+        Initialize supervisor with optional features
+        
+        Args:
+            config: SupervisorConfig with feature flags (HITL, Memory, Language, LangGraph)
+                   If None, uses default config (all features disabled for backward compatibility)
+        """
+        self.config = config or SupervisorConfig()
         self.context_id = str(uuid.uuid4())
         self.session_id = f"supervisor-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         self.results = {}
         self.output_dir = Path("output") / self.session_id
+        
+        # Initialize optional features
+        self.hitl_manager = None
+        self.memory_manager = None
+        self.langgraph_workflow = None
+        
+        # Initialize Memory if enabled (do this first as HITL depends on it)
+        if self.config.enable_memory:
+            self._initialize_memory()
+        
+        # Initialize HITL if enabled
+        if self.config.enable_hitl:
+            self._initialize_hitl()
+        
+        # Initialize LangGraph workflow if enabled
+        if self.config.use_langgraph and LANGGRAPH_AVAILABLE:
+            self._build_langgraph_workflow()
+        elif self.config.use_langgraph and not LANGGRAPH_AVAILABLE:
+            logger.warning("⚠️  LangGraph requested but not available. Falling back to standard workflow.")
+            self.config.use_langgraph = False
+        
+        # Print initialization info if any features are enabled
+        if self.config.enable_hitl or self.config.enable_memory or self.config.language != "python" or self.config.use_langgraph:
+            self._print_initialization()
+    
+    def _initialize_hitl(self):
+        """Initialize Human-in-the-Loop capabilities"""
+        try:
+            from hitl_manager import HITLConfig, create_hitl_manager
+            
+            hitl_config = HITLConfig(
+                enabled=True,
+                interactive_mode=self.config.hitl_interactive,
+                auto_approve_threshold=self.config.hitl_auto_approve_threshold,
+                learn_from_interactions=self.config.hitl_learn_from_interactions
+            )
+            
+            self.hitl_manager = create_hitl_manager(
+                user_id=self.config.user_id,
+                session_id=self.session_id,
+                config=hitl_config
+            )
+            
+            logger.info("✅ HITL capabilities enabled")
+        except ImportError as e:
+            logger.warning(f"⚠️  Could not initialize HITL: {e}")
+            logger.warning(f"   Make sure hitl_manager.py is available")
+            self.config.enable_hitl = False
+    
+    def _initialize_memory(self):
+        """Initialize mem0 memory management"""
+        try:
+            from mem0_manager import create_memory_manager
+            
+            self.memory_manager = create_memory_manager(user_id=self.config.user_id)
+            self.memory_manager.set_session(self.session_id)
+            
+            logger.info("✅ Memory management enabled")
+        except ImportError as e:
+            logger.warning(f"⚠️  Could not initialize memory: {e}")
+            logger.warning(f"   Make sure mem0_manager.py is available")
+            self.config.enable_memory = False
+    
+    def _print_initialization(self):
+        """Print initialization information"""
+        print("\n" + "="*80)
+        print("🤖 SUPERVISOR INITIALIZED")
+        print("="*80)
+        print(f"Session ID: {self.session_id}")
+        print(f"Language: {self.config.language.upper()}")
+        print(f"Workflow: {'🎯 LangGraph' if self.config.use_langgraph else '📋 Standard'}")
+        print(f"HITL: {'✅ Enabled' if self.config.enable_hitl else '❌ Disabled'}")
+        print(f"Memory: {'✅ Enabled' if self.config.enable_memory else '❌ Disabled'}")
+        if self.config.enable_hitl:
+            print(f"  - Auto-Approve Threshold: {self.config.hitl_auto_approve_threshold:.1%}")
+            print(f"  - Learning: {'Yes' if self.config.hitl_learn_from_interactions else 'No'}")
+        if self.config.enable_memory:
+            print(f"  - User ID: {self.config.user_id}")
+        if self.config.use_langgraph:
+            print(f"  - Graph Visualization: {'Yes' if self.config.generate_graph_viz else 'No'}")
+        print("="*80 + "\n")
+    
+    def _build_langgraph_workflow(self):
+        """Build LangGraph workflow with HITL checkpoints"""
+        if not LANGGRAPH_AVAILABLE:
+            logger.error("LangGraph not available")
+            return
+        
+        logger.info("🎯 Building LangGraph workflow...")
+        
+        # Import here to avoid errors if not installed
+        from langgraph.graph import StateGraph, END
+        from langgraph.checkpoint.memory import MemorySaver
+        
+        # Create workflow graph
+        workflow = StateGraph(WorkflowState)
+        
+        # Define agent nodes with HITL integration
+        async def brd_node_with_hitl(state: WorkflowState) -> WorkflowState:
+            """BRD generation with HITL checkpoint"""
+            logger.info("🔹 Step 1: Generate BRD")
+            
+            # Store requirement in memory
+            if self.config.enable_memory and self.memory_manager:
+                try:
+                    self.memory_manager.add_conversation(
+                        role="user",
+                        content=f"Requirement: {state['requirement']}",
+                        agent_name="supervisor"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store requirement: {e}")
+            
+            # Call BRD agent
+            result = await self.send_task(
+                "brd_generator",
+                state["requirement"],
+                template_id=state.get("template_id")
+            )
+            
+            state["brd_result"] = result
+            state["steps_completed"].append("brd")
+            state["current_step"] = "brd_approval"
+            
+            # HITL checkpoint if enabled
+            if self.config.enable_hitl and result.get("success"):
+                approved = await self._hitl_checkpoint("BRD Generator", result, state)
+                if not approved:
+                    state["errors"].append("Human rejected BRD")
+            
+            return state
+        
+        async def arch_node_with_hitl(state: WorkflowState) -> WorkflowState:
+            """Architecture generation with HITL checkpoint"""
+            logger.info("🔹 Step 2: Generate Architecture")
+            
+            if not state.get("brd_result") or not state["brd_result"].get("success"):
+                state["errors"].append("BRD failed, skipping architecture")
+                return state
+            
+            brd_text = state["brd_result"].get("message", "")
+            result = await self.send_task("arch_generator", brd_text)
+            
+            state["arch_result"] = result
+            state["steps_completed"].append("architecture")
+            state["current_step"] = "arch_approval"
+            
+            # HITL checkpoint
+            if self.config.enable_hitl and result.get("success"):
+                approved = await self._hitl_checkpoint("Architecture Generator", result, state)
+                if not approved:
+                    state["errors"].append("Human rejected architecture")
+            
+            return state
+        
+        async def jira_node_with_hitl(state: WorkflowState) -> WorkflowState:
+            """JIRA conversion with HITL checkpoint"""
+            logger.info("🔹 Step 3: Convert to JIRA Stories")
+            
+            if not state.get("brd_result") or not state["brd_result"].get("success"):
+                state["errors"].append("BRD failed, skipping JIRA")
+                return state
+            
+            brd_text = state["brd_result"].get("message", "")
+            result = await self.send_task("brd_to_jira", brd_text)
+            
+            state["jira_result"] = result
+            state["steps_completed"].append("jira")
+            state["current_step"] = "jira_approval"
+            
+            # HITL checkpoint
+            if self.config.enable_hitl and result.get("success"):
+                approved = await self._hitl_checkpoint("BRD to JIRA", result, state)
+                if not approved:
+                    state["errors"].append("Human rejected JIRA stories")
+            
+            return state
+        
+        async def code_node_with_hitl(state: WorkflowState) -> WorkflowState:
+            """Code generation with HITL checkpoint and language support"""
+            logger.info(f"🔹 Step 4: Generate {state['language'].upper()} Code and Tests")
+            
+            if not state.get("jira_result") or not state["jira_result"].get("success"):
+                state["errors"].append("JIRA failed, skipping code generation")
+                return state
+            
+            jira_text = state["jira_result"].get("message", "")
+            
+            # Pass language in metadata
+            metadata = {
+                "session_id": self.session_id,
+                "user_id": self.config.user_id,
+                "language": state["language"]
+            }
+            
+            result = await self.send_task("code_to_test", jira_text, metadata=metadata)
+            
+            state["code_result"] = result
+            state["steps_completed"].append("code")
+            state["current_step"] = "code_approval"
+            
+            # HITL checkpoint
+            if self.config.enable_hitl and result.get("success"):
+                approved = await self._hitl_checkpoint(f"{state['language'].upper()} Code Generator", result, state)
+                if not approved:
+                    state["errors"].append("Human rejected generated code")
+            
+            return state
+        
+        async def validation_node_with_hitl(state: WorkflowState) -> WorkflowState:
+            """Validation with HITL checkpoint"""
+            logger.info("🔹 Step 5: Validate BRD")
+            
+            if not state.get("brd_result") or not state["brd_result"].get("success"):
+                state["errors"].append("BRD failed, skipping validation")
+                state["end_time"] = datetime.now().isoformat()
+                return state
+            
+            brd_text = state["brd_result"].get("message", "")
+            result = await self.send_task("validation", brd_text)
+            
+            state["validation_result"] = result
+            state["steps_completed"].append("validation")
+            state["current_step"] = "completed"
+            state["end_time"] = datetime.now().isoformat()
+            
+            # HITL checkpoint
+            if self.config.enable_hitl and result.get("success"):
+                approved = await self._hitl_checkpoint("Validation", result, state)
+                if not approved:
+                    state["errors"].append("Human rejected validation")
+            
+            return state
+        
+        # Add nodes
+        workflow.add_node("brd", brd_node_with_hitl)
+        workflow.add_node("architecture", arch_node_with_hitl)
+        workflow.add_node("jira", jira_node_with_hitl)
+        workflow.add_node("code", code_node_with_hitl)
+        workflow.add_node("validation", validation_node_with_hitl)
+        
+        # Define edges with error handling
+        def should_continue(state: WorkflowState) -> str:
+            """Check if workflow should continue"""
+            if state.get("errors"):
+                return "end"
+            return "continue"
+        
+        workflow.set_entry_point("brd")
+        workflow.add_conditional_edges(
+            "brd",
+            should_continue,
+            {"continue": "architecture", "end": END}
+        )
+        workflow.add_conditional_edges(
+            "architecture",
+            should_continue,
+            {"continue": "jira", "end": END}
+        )
+        workflow.add_conditional_edges(
+            "jira",
+            should_continue,
+            {"continue": "code", "end": END}
+        )
+        workflow.add_conditional_edges(
+            "code",
+            should_continue,
+            {"continue": "validation", "end": END}
+        )
+        workflow.add_edge("validation", END)
+        
+        # Compile with memory checkpointing
+        memory = MemorySaver()
+        self.langgraph_workflow = workflow.compile(checkpointer=memory)
+        
+        logger.info("✅ LangGraph workflow built successfully")
+    
+    async def _hitl_checkpoint(self, agent_name: str, result: Dict[str, Any], state: WorkflowState) -> bool:
+        """HITL checkpoint for human approval"""
+        if not self.hitl_manager:
+            return True
+        
+        print("\n" + "="*80)
+        print(f"👤 HUMAN APPROVAL: {agent_name}")
+        print("="*80)
+        print(f"Status: {'✅ Success' if result.get('success') else '❌ Failed'}")
+        print(f"Duration: {result.get('duration', 0):.2f}s")
+        
+        if result.get("message"):
+            preview = result["message"][:200]
+            print(f"\n📄 Preview:\n{preview}...")
+        
+        print("\n❓ Options:")
+        print("  1. Approve (continue)")
+        print("  2. Reject (stop workflow)")
+        print("  3. Approve with feedback")
+        
+        choice = input("\nEnter choice (1-3) [default: 1]: ").strip() or "1"
+        
+        approval = {
+            "agent": agent_name,
+            "timestamp": datetime.now().isoformat(),
+            "approved": choice in ["1", "3"],
+            "feedback": None
+        }
+        
+        if choice == "2":
+            print(f"\n❌ Workflow rejected at {agent_name}")
+            return False
+        elif choice == "3":
+            feedback = input("\nEnter feedback: ").strip()
+            approval["feedback"] = feedback
+            print(f"\n✅ Approved with feedback")
+            
+            # Store feedback in memory
+            if self.config.enable_memory and self.memory_manager:
+                try:
+                    self.memory_manager.add_conversation(
+                        role="user",
+                        content=f"Feedback for {agent_name}: {feedback}",
+                        agent_name="supervisor"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store feedback: {e}")
+        else:
+            print(f"\n✅ Approved")
+        
+        state["human_approvals"].append(approval)
+        print("="*80 + "\n")
+        
+        return True
+    
+    async def run_langgraph_workflow(self, requirement: str) -> Dict[str, Any]:
+        """Run workflow using LangGraph orchestration"""
+        if not self.langgraph_workflow:
+            logger.error("LangGraph workflow not initialized")
+            return await self.run_full_workflow(requirement)
+        
+        print("\n" + "="*80)
+        print("🎯 RUNNING LANGGRAPH WORKFLOW")
+        print("="*80)
+        print(f"Requirement: {requirement[:100]}...")
+        print(f"Language: {self.config.language.upper()}")
+        print(f"HITL: {'Enabled' if self.config.enable_hitl else 'Disabled'}")
+        print(f"Memory: {'Enabled' if self.config.enable_memory else 'Disabled'}")
+        print("="*80 + "\n")
+        
+        # Initialize state
+        initial_state: WorkflowState = {
+            "requirement": requirement,
+            "language": self.config.language,
+            "template_id": self.config.template_id,
+            "context_id": self.context_id,
+            "session_id": self.session_id,
+            "user_id": self.config.user_id,
+            "brd_result": None,
+            "arch_result": None,
+            "jira_result": None,
+            "code_result": None,
+            "validation_result": None,
+            "human_approvals": [],
+            "human_feedback": [],
+            "current_step": "start",
+            "steps_completed": [],
+            "errors": [],
+            "start_time": datetime.now().isoformat(),
+            "end_time": None
+        }
+        
+        # Run workflow
+        config = {"configurable": {"thread_id": self.session_id}}
+        
+        try:
+            final_state = await self.langgraph_workflow.ainvoke(initial_state, config)
+            
+            # Convert state to results format compatible with standard workflow
+            results = {
+                "context_id": final_state["context_id"],
+                "session_id": final_state["session_id"],
+                "requirement": final_state["requirement"],
+                "language": final_state["language"],
+                "start_time": final_state["start_time"],
+                "end_time": final_state.get("end_time"),
+                "steps": [],
+                "success": len(final_state.get("errors", [])) == 0,
+                "errors": final_state.get("errors", []),
+                "human_approvals": final_state.get("human_approvals", []),
+                "human_feedback": final_state.get("human_feedback", [])
+            }
+            
+            # Add step results
+            step_num = 1
+            if final_state.get("brd_result"):
+                results["steps"].append({"step": step_num, "agent": "BRD Generator", "result": final_state["brd_result"]})
+                step_num += 1
+            if final_state.get("arch_result"):
+                results["steps"].append({"step": step_num, "agent": "Architecture Generator", "result": final_state["arch_result"]})
+                step_num += 1
+            if final_state.get("jira_result"):
+                results["steps"].append({"step": step_num, "agent": "BRD to JIRA", "result": final_state["jira_result"]})
+                step_num += 1
+            if final_state.get("code_result"):
+                results["steps"].append({"step": step_num, "agent": "Code Generator", "result": final_state["code_result"]})
+                step_num += 1
+            if final_state.get("validation_result"):
+                results["steps"].append({"step": step_num, "agent": "Validation", "result": final_state["validation_result"]})
+            
+            # Save outputs
+            if self.config.save_output:
+                await self._save_langgraph_outputs(final_state, results)
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"LangGraph workflow failed: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "session_id": self.session_id
+            }
+    
+    def _visualize_langgraph(self):
+        """Generate LangGraph workflow visualization"""
+        if not self.langgraph_workflow:
+            return
+        
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate Mermaid diagram
+            mermaid_code = self.langgraph_workflow.get_graph().draw_mermaid()
+            mermaid_file = self.output_dir / "workflow_graph.mmd"
+            mermaid_file.write_text(mermaid_code, encoding='utf-8')
+            logger.info(f"📊 Workflow graph saved: {mermaid_file}")
+            
+            # Try to generate PNG if available
+            try:
+                png_data = self.langgraph_workflow.get_graph().draw_mermaid_png()
+                png_file = self.output_dir / "workflow_graph.png"
+                png_file.write_bytes(png_data)
+                logger.info(f"📊 PNG diagram saved: {png_file}")
+            except:
+                logger.info("⚠️  GraphViz not available for PNG generation")
+                
+        except Exception as e:
+            logger.warning(f"Could not generate visualization: {e}")
+    
+    async def _save_langgraph_outputs(self, state: WorkflowState, results: Dict[str, Any]):
+        """Save LangGraph workflow outputs"""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save workflow state
+        state_file = self.output_dir / "workflow_state.json"
+        with open(state_file, 'w') as f:
+            json_state = {k: v for k, v in state.items()}
+            json.dump(json_state, f, indent=2, default=str)
+        logger.info(f"💾 Saved workflow state: {state_file}")
+        
+        # Save results summary
+        summary_file = self.output_dir / "workflow_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump(results, f, indent=2, default=str)
+        logger.info(f"💾 Saved workflow summary: {summary_file}")
+        
+        # Save HITL report if there were approvals
+        if state.get("human_approvals"):
+            hitl_report = self._generate_hitl_report(state)
+            hitl_file = self.output_dir / "hitl_report.txt"
+            hitl_file.write_text(hitl_report, encoding='utf-8')
+            logger.info(f"💾 Saved HITL report: {hitl_file}")
+        
+        # Save validation report if available
+        if state.get("validation_result") and state["validation_result"].get("message"):
+            validation_file = self.output_dir / "validation_report.md"
+            validation_file.write_text(state["validation_result"]["message"], encoding='utf-8')
+            logger.info(f"💾 Saved validation report: {validation_file}")
+        
+        # Extract and save generated files (BRD, JIRA, Code, etc.)
+        await self._extract_and_save_artifacts(state)
+    
+    def _generate_hitl_report(self, state: WorkflowState) -> str:
+        """Generate HITL session report"""
+        report = []
+        report.append("="*80)
+        report.append("HUMAN-IN-THE-LOOP SESSION REPORT")
+        report.append("="*80)
+        report.append(f"Session ID: {state['session_id']}")
+        report.append(f"User ID: {state['user_id']}")
+        report.append(f"Start Time: {state['start_time']}")
+        report.append(f"End Time: {state.get('end_time', 'N/A')}")
+        report.append("")
+        report.append(f"Total Approvals: {len(state.get('human_approvals', []))}")
+        report.append(f"Steps Completed: {', '.join(state.get('steps_completed', []))}")
+        report.append("")
+        report.append("APPROVALS:")
+        report.append("-"*80)
+        
+        for approval in state.get("human_approvals", []):
+            status = "✅ APPROVED" if approval["approved"] else "❌ REJECTED"
+            report.append(f"\n{approval['agent']}: {status}")
+            report.append(f"  Timestamp: {approval['timestamp']}")
+            if approval.get("feedback"):
+                report.append(f"  Feedback: {approval['feedback']}")
+        
+        if state.get("human_feedback"):
+            report.append("\n" + "="*80)
+            report.append("FEEDBACK SUMMARY:")
+            report.append("-"*80)
+            for feedback in state["human_feedback"]:
+                report.append(f"  • {feedback}")
+        
+        if state.get("errors"):
+            report.append("\n" + "="*80)
+            report.append("ERRORS:")
+            report.append("-"*80)
+            for error in state["errors"]:
+                report.append(f"  ❌ {error}")
+        
+        report.append("\n" + "="*80)
+        
+        return "\n".join(report)
+    
+    async def _extract_and_save_artifacts(self, state: WorkflowState):
+        """Extract generated artifacts (BRD, JIRA, Code) from state and save them"""
+        docs_dir = self.output_dir / "docs"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save BRD if available
+        if state.get("brd_result") and state["brd_result"].get("message"):
+            brd_text = state["brd_result"]["message"]
+            brd_file = docs_dir / "brd.md"
+            brd_file.write_text(brd_text, encoding='utf-8')
+            logger.info(f"💾 Saved BRD: {brd_file}")
+            
+            # Also save plain text version
+            brd_txt_file = docs_dir / "brd.txt"
+            brd_txt_file.write_text(brd_text, encoding='utf-8')
+        
+        # Save JIRA stories if available
+        if state.get("jira_result") and state["jira_result"].get("message"):
+            jira_text = state["jira_result"]["message"]
+            jira_file = docs_dir / "jira_stories.json"
+            jira_file.write_text(jira_text, encoding='utf-8')
+            logger.info(f"💾 Saved JIRA stories: {jira_file}")
+            
+            # Also save plain text version
+            jira_txt_file = docs_dir / "jira_stories.txt"
+            jira_txt_file.write_text(jira_text, encoding='utf-8')
+        
+        # Save generated code if available - FULL PROJECT STRUCTURE
+        if state.get("code_result") and state["code_result"].get("message"):
+            code_text = state["code_result"]["message"]
+            
+            # Try to parse as structured JSON with multiple files
+            files_data = self.extract_code_files_from_response(code_text)
+            
+            if files_data:
+                # Use the standard method to write all files properly
+                code_files = files_data.get('code_files', {})
+                test_files = files_data.get('test_files', {})
+                
+                logger.info(f"📥 Received {len(code_files)} code files and {len(test_files)} test files")
+                
+                # Auto-fix any common issues using comprehensive fix method
+                logger.info(f"🔧 Applying auto-fixes to all code files...")
+                code_files = self.apply_code_fixes(code_files)
+                
+                # Write all files to disk
+                self.write_code_files_to_disk(code_files, test_files)
+                
+                # Generate helper files (run.py, requirements.txt, README.md)
+                arch_diagram_url = None
+                if state.get("arch_result") and state["arch_result"].get("diagram_url"):
+                    arch_diagram_url = state["arch_result"]["diagram_url"]
+                self.write_helper_files(architecture_diagram_url=arch_diagram_url)
+                
+                logger.info(f"✅ Saved complete project structure")
+            else:
+                # Fallback: save as single file
+                code_dir = self.output_dir / "src"
+                code_dir.mkdir(parents=True, exist_ok=True)
+                code_file = code_dir / f"generated_code.{self._get_file_extension(state['language'])}"
+                code_file.write_text(code_text, encoding='utf-8')
+                logger.info(f"💾 Saved generated code: {code_file}")
+    
+    def _get_file_extension(self, language: str) -> str:
+        """Get file extension for language"""
+        extensions = {
+            "python": "py",
+            "csharp": "cs",
+            "dotnet": "cs"
+        }
+        return extensions.get(language.lower(), "txt")
     
     def parse_brd_to_json(self, brd_text: str) -> Dict[str, Any]:
         """Parse markdown BRD text and convert to structured JSON.
@@ -902,6 +1591,8 @@ pytest tests/ -v  # Run automated tests
     async def send_task(self, agent_key: str, message: str, metadata: Optional[Dict] = None, template_id: Optional[str] = None) -> Dict[str, Any]:
         """Send task to an agent using A2A protocol
         
+        Now with HITL and Memory integration!
+        
         Args:
             agent_key: Key identifying the agent to send to
             message: Message content to send
@@ -914,6 +1605,49 @@ pytest tests/ -v  # Run automated tests
         agent_name = agent["name"]
         timeout = agent["timeout"]
         
+        # Prepare input data
+        input_data = {
+            "message": message,
+            "metadata": metadata or {},
+            "template_id": template_id
+        }
+        
+        context = {
+            "agent_key": agent_key,
+            "agent_name": agent_name,
+            "session_id": self.session_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # PRE-AGENT HITL REVIEW
+        if self.config.enable_hitl and self.hitl_manager:
+            logger.info(f"👤 Requesting human review before {agent_name}...")
+            
+            should_proceed, modified_input, feedback = await self.hitl_manager.review_before_agent(
+                agent_name=agent_name,
+                input_data=input_data,
+                context=context
+            )
+            
+            if not should_proceed:
+                logger.warning(f"❌ Human rejected {agent_name} execution: {feedback}")
+                return {
+                    "success": False,
+                    "agent": agent_name,
+                    "error": f"Rejected by human: {feedback}",
+                    "hitl_stage": "pre_agent",
+                    "hitl_feedback": feedback
+                }
+            
+            # Use modified input if provided
+            if modified_input and isinstance(modified_input, dict):
+                message = modified_input.get("message", message)
+                if "metadata" in modified_input:
+                    metadata = modified_input["metadata"]
+                if "template_id" in modified_input:
+                    template_id = modified_input["template_id"]
+                logger.info(f"✏️  Using human-modified input")
+        
         print(f"\n{'='*80}")
         print(f"📤 Sending task to: {agent_name}")
         print(f"   URL: {agent_url}")
@@ -924,7 +1658,7 @@ pytest tests/ -v  # Run automated tests
         # Build JSON-RPC request (A2A protocol)
         params_metadata = metadata or {
             "session_id": self.session_id,
-            "user_id": "supervisor"
+            "user_id": self.config.user_id
         }
         
         # Add template_id to metadata if provided (for BRD generator)
@@ -1013,7 +1747,7 @@ pytest tests/ -v  # Run automated tests
                     print(f"   Duration: {duration:.2f}s")
                     print(f"   Response length: {len(message_response)} chars")
                     
-                    return {
+                    agent_result = {
                         "success": True,
                         "agent": agent_name,
                         "state": state,
@@ -1021,6 +1755,58 @@ pytest tests/ -v  # Run automated tests
                         "duration": duration,
                         "full_response": result
                     }
+                    
+                    # POST-AGENT HITL REVIEW
+                    if self.config.enable_hitl and self.hitl_manager:
+                        logger.info(f"👤 Requesting human review after {agent_name}...")
+                        
+                        output_data = {
+                            "success": agent_result.get("success", False),
+                            "message": agent_result.get("message", ""),
+                            "state": agent_result.get("state", "unknown"),
+                            "duration": agent_result.get("duration", 0.0)
+                        }
+                        
+                        should_accept, modified_output, feedback = await self.hitl_manager.review_after_agent(
+                            agent_name=agent_name,
+                            input_data=input_data,
+                            output_data=output_data,
+                            success=agent_result.get("success", False),
+                            context=context
+                        )
+                        
+                        if not should_accept:
+                            logger.warning(f"❌ Human rejected {agent_name} output: {feedback}")
+                            return {
+                                **agent_result,
+                                "success": False,
+                                "error": f"Output rejected by human: {feedback}",
+                                "hitl_stage": "post_agent",
+                                "hitl_feedback": feedback
+                            }
+                        
+                        # Use modified output if provided
+                        if modified_output and isinstance(modified_output, dict):
+                            if "message" in modified_output:
+                                agent_result["message"] = modified_output["message"]
+                            logger.info(f"✏️  Using human-modified output")
+                        
+                        if feedback:
+                            agent_result["hitl_feedback"] = feedback
+                    
+                    # MEMORY: Store interaction
+                    if self.config.enable_memory and self.memory_manager:
+                        try:
+                            self.memory_manager.store_agent_output(
+                                agent_name=agent_name,
+                                input_data=message,
+                                output_data=message_response,
+                                metadata={"success": True, "duration": duration}
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to store in memory: {e}")
+                    
+                    return agent_result
                 else:
                     print(f"❌ {agent_name}: Invalid response format")
                     return {
@@ -1054,12 +1840,22 @@ pytest tests/ -v  # Run automated tests
         Run the complete workflow:
         Requirement → BRD → JIRA → Code → Validation
         
+        Now with HITL and Memory integration!
+        
         Args:
             requirement: User requirement text
             save_output: Whether to save output files
             language: Programming language (python, csharp, dotnet)
             template_id: Optional template ID for BRD generation
         """
+        
+        # Use language from config if not explicitly provided
+        if hasattr(self, 'config') and self.config.language != "python":
+            language = self.config.language
+        
+        # Use template_id from config if not explicitly provided
+        if hasattr(self, 'config') and self.config.template_id and not template_id:
+            template_id = self.config.template_id
         
         print("\n" + "="*80)
         print("🚀 SUPERVISOR - FULL WORKFLOW EXECUTION")
@@ -1070,7 +1866,23 @@ pytest tests/ -v  # Run automated tests
         print(f"Requirement: {requirement[:100]}...")
         if template_id:
             print(f"Template: {template_id}")
+        if hasattr(self, 'config'):
+            print(f"HITL: {'Enabled' if self.config.enable_hitl else 'Disabled'}")
+            print(f"Memory: {'Enabled' if self.config.enable_memory else 'Disabled'}")
         print("="*80)
+        
+        # MEMORY: Store initial requirement
+        if hasattr(self, 'config') and self.config.enable_memory and self.memory_manager:
+            try:
+                self.memory_manager.add_conversation(
+                    role="user",
+                    content=f"User requirement: {requirement}",
+                    agent_name="supervisor",
+                    metadata={"type": "user_requirement", "language": language}
+                )
+                logger.info("💾 Stored requirement in memory")
+            except Exception as e:
+                logger.warning(f"Failed to store requirement: {e}")
         
         workflow_results = {
             "context_id": self.context_id,
@@ -1079,7 +1891,9 @@ pytest tests/ -v  # Run automated tests
             "language": language,
             "template_id": template_id,
             "start_time": datetime.now().isoformat(),
-            "steps": []
+            "steps": [],
+            "hitl_enabled": hasattr(self, 'config') and self.config.enable_hitl,
+            "memory_enabled": hasattr(self, 'config') and self.config.enable_memory
         }
         
         # Step 1: Generate BRD
@@ -1486,6 +2300,17 @@ pytest tests/ -v  # Run automated tests
             summary_file.write_text(json.dumps(workflow_results, indent=2), encoding='utf-8')
             print(f"💾 Saved: workflow_summary.json")
             
+            # HITL: Save session report if enabled
+            if hasattr(self, 'config') and self.config.enable_hitl and self.hitl_manager:
+                try:
+                    hitl_report = self.hitl_manager.get_session_report()
+                    hitl_report_file = self.output_dir / "hitl_session_report.txt"
+                    hitl_report_file.write_text(hitl_report, encoding='utf-8')
+                    print(f"💾 Saved: hitl_session_report.txt")
+                    logger.info("✅ HITL session report saved")
+                except Exception as e:
+                    logger.warning(f"Failed to save HITL report: {e}")
+            
             # Print final summary
             print(f"\n{'='*80}")
             print(f"✅ ALL FILES GENERATED SUCCESSFULLY")
@@ -1507,7 +2332,9 @@ pytest tests/ -v  # Run automated tests
             print(f"  ├── requirements.txt              # Python Dependencies")
             print(f"  ├── README.md                     # API Documentation")
             print(f"  ├── validation_report.md          # BRD Quality Report")
-            print(f"  └── workflow_summary.json         # Workflow Metadata")
+            print(f"  ├── workflow_summary.json         # Workflow Metadata")
+            if hasattr(self, 'config') and self.config.enable_hitl:
+                print(f"  └── hitl_session_report.txt       # HITL Interaction Report")
             print(f"{'='*80}")
             print(f"\n🚀 To run the generated API:")
             print(f"   cd {self.output_dir}")
@@ -1524,6 +2351,14 @@ pytest tests/ -v  # Run automated tests
         print("\n" + "="*80)
         print("📊 WORKFLOW SUMMARY")
         print("="*80)
+        
+        # Handle missing start_time (when workflow fails early)
+        if "start_time" not in workflow_results:
+            print(f"Success: {'✅ Yes' if workflow_results.get('success', False) else '❌ No'}")
+            if 'error' in workflow_results:
+                print(f"Error: {workflow_results['error']}")
+            print("="*80)
+            return
         
         start = datetime.fromisoformat(workflow_results["start_time"])
         if "end_time" in workflow_results:
@@ -1563,13 +2398,29 @@ async def main():
     
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description='BRD-to-Code Supervisor - Orchestrates the complete workflow',
+        description='BRD-to-Code Supervisor - Orchestrates the complete workflow with HITL and Memory',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
+  # Basic usage
   python supervisor.py "Create an inventory management API"
-  python supervisor.py "Build healthcare system" --template enterprise_brd
-  python supervisor.py "Quick MVP for food app" --template lean_brd
-  python supervisor.py "Internal dashboard" --template custom_project
+  
+  # With HITL (Human-in-the-Loop)
+  python supervisor.py "Create API" --hitl --hitl-mode smart
+  
+  # With Memory (mem0)
+  python supervisor.py "Create API" --memory --user-id john
+  
+  # With C# language
+  python supervisor.py "Create API" --language csharp
+  
+  # With all features
+  python supervisor.py "Create API" --hitl --memory --language python --user-id john
+  
+  # With template
+  python supervisor.py "Build healthcare system" --template enterprise_brd --hitl
+  
+  # Interactive mode
+  python supervisor.py --interactive
 
 Available templates:
   • standard_brd    - General purpose (default, auto-selected)
@@ -1599,12 +2450,66 @@ Available templates:
         help='Programming language for code generation (default: python)'
     )
     
+    # HITL arguments
+    parser.add_argument(
+        '--hitl',
+        action='store_true',
+        help='Enable Human-in-the-Loop mode'
+    )
+    parser.add_argument(
+        '--hitl-mode',
+        choices=['always', 'smart'],
+        default='smart',
+        help='HITL interaction mode: always (always ask) or smart (auto-approve high confidence) (default: smart)'
+    )
+    parser.add_argument(
+        '--auto-approve-threshold',
+        type=float,
+        default=0.9,
+        help='Auto-approval confidence threshold (0.0-1.0) for smart mode (default: 0.9)'
+    )
+    parser.add_argument(
+        '--no-learn',
+        action='store_true',
+        help='Disable learning from HITL interactions'
+    )
+    
+    # Memory arguments
+    parser.add_argument(
+        '--memory',
+        action='store_true',
+        help='Enable mem0 memory management'
+    )
+    parser.add_argument(
+        '--user-id',
+        default='default_user',
+        help='User ID for memory management (default: default_user)'
+    )
+    
+    # LangGraph arguments
+    parser.add_argument(
+        '--use-langgraph',
+        action='store_true',
+        help='Use LangGraph workflow orchestration (recommended for HITL)'
+    )
+    parser.add_argument(
+        '--visualize-graph',
+        action='store_true',
+        help='Generate workflow graph visualization'
+    )
+    
+    # Interactive mode
+    parser.add_argument(
+        '--interactive',
+        '-i',
+        action='store_true',
+        help='Run in interactive mode (prompts for all settings)'
+    )
+    
     args = parser.parse_args()
     
     # Get requirement from arguments or prompt
-    if args.requirement:
-        requirement = " ".join(args.requirement)
-    else:
+    if args.interactive or not args.requirement:
         print("\n" + "="*80)
         print("🤖 BRD-to-Code Supervisor - Interactive Mode")
         print("="*80)
@@ -1624,31 +2529,94 @@ Available templates:
         print("\n" + "-"*80)
         print("Select programming language:")
         print("  1. Python (FastAPI) - Default")
-        print("  2. C# (ASP.NET Core)")
-        print("  3. .NET (ASP.NET Core)")
+        print("  2. C# / .NET (ASP.NET Core)")
         print("-"*80)
         
-        language_choice = input("Enter choice (1-3) [default: 1]: ").strip() or "1"
+        language_choice = input("Enter choice (1-2) [default: 1]: ").strip() or "1"
         
         language_map = {
             "1": "python",
-            "2": "csharp",
-            "3": "dotnet"
+            "2": "csharp"
         }
         
         language = language_map.get(language_choice, "python")
         print(f"✅ Selected language: {language.upper()}")
+        
+        # Prompt for HITL
+        print("\n" + "-"*80)
+        print("Enable Human-in-the-Loop?")
+        print("  1. No (default)")
+        print("  2. Yes (smart mode)")
+        print("  3. Yes (always ask)")
+        print("-"*80)
+        
+        hitl_choice = input("Enter choice (1-3) [default: 1]: ").strip() or "1"
+        enable_hitl = hitl_choice in ["2", "3"]
+        hitl_mode = "always" if hitl_choice == "3" else "smart"
+        
+        # Prompt for Memory
+        print("\n" + "-"*80)
+        enable_memory = input("Enable Memory (mem0)? (y/N): ").strip().lower() in ["y", "yes"]
+        user_id = "default_user"
+        if enable_memory:
+            user_id = input("Enter user ID [default_user]: ").strip() or "default_user"
+        print("-"*80)
+    else:
+        requirement = " ".join(args.requirement)
+        language = args.language
+        enable_hitl = args.hitl
+        hitl_mode = args.hitl_mode
+        enable_memory = args.memory
+        user_id = args.user_id
     
-    # Create supervisor and run workflow
-    supervisor = Supervisor()
+    # Build supervisor config
+    config = SupervisorConfig(
+        language=language,
+        save_output=True,
+        template_id=args.template_id,
+        enable_hitl=enable_hitl,
+        hitl_interactive=(hitl_mode == "always"),
+        hitl_auto_approve_threshold=args.auto_approve_threshold,
+        hitl_learn_from_interactions=(not args.no_learn),
+        enable_memory=enable_memory,
+        user_id=user_id,
+        use_langgraph=args.use_langgraph,
+        generate_graph_viz=args.visualize_graph or args.use_langgraph,
+        max_retries=3
+    )
+    
+    # Create supervisor with config
+    supervisor = Supervisor(config=config)
+    
+    # Generate graph visualization if requested
+    if config.generate_graph_viz and config.use_langgraph and supervisor.langgraph_workflow:
+        try:
+            supervisor._visualize_langgraph()
+        except Exception as e:
+            logger.warning(f"Could not generate graph visualization: {e}")
     
     try:
-        results = await supervisor.run_full_workflow(requirement, language=args.language, template_id=args.template_id)
+        # Choose workflow execution method
+        if config.use_langgraph and supervisor.langgraph_workflow:
+            # Use LangGraph workflow (recommended for HITL)
+            results = await supervisor.run_langgraph_workflow(requirement)
+        else:
+            # Use standard workflow
+            results = await supervisor.run_full_workflow(
+                requirement, 
+                language=config.language, 
+                template_id=config.template_id
+            )
+        
         supervisor.print_summary(results)
         
-        if results["success"]:
+        if results.get("success"):
             print("\n✅ Workflow completed successfully!")
             print(f"📂 Check output/{supervisor.session_id}/ for generated files")
+            
+            if config.use_langgraph:
+                print(f"\n📊 Workflow visualization saved to:")
+                print(f"   {supervisor.output_dir}/workflow_graph.mmd")
         else:
             print("\n❌ Workflow failed. Check the errors above.")
             

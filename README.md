@@ -2,6 +2,54 @@
 
 > Microservices-based AI agent architecture for transforming business requirements into production-ready code
 
+## ⭐ NEW: Unified Supervisor - All Features in One!
+
+**RECOMMENDED:** Use the unified supervisor with all features available via simple flags!
+
+```bash
+# Interactive mode - choose your features
+python supervisor_unified.py --interactive
+
+# Basic usage (same as before)
+python supervisor_unified.py "Create a todo API"
+
+# With HITL (Human-in-the-Loop)
+python supervisor_unified.py "Create a todo API" --hitl --hitl-mode smart
+
+# With Memory (mem0 learning)
+python supervisor_unified.py "Create a todo API" --memory --user-id john
+
+# With C# language
+python supervisor_unified.py "Create a todo API" --language csharp
+
+# With ALL features combined!
+python supervisor_unified.py "Create a todo API" --hitl --memory --language python --user-id john
+```
+
+### ✨ Unified Features
+
+✅ **Base Workflow** - Complete BRD → JIRA → Code generation  
+✅ **HITL** - Review inputs/outputs at each step  
+✅ **Memory** - Learn from decisions via mem0  
+✅ **Language Selection** - Python or C# support  
+✅ **Combined Features** - Use any combination together!  
+
+📖 **[Migration Guide](SUPERVISOR_MIGRATION_GUIDE.md)** | 📖 **[HITL Guide](HITL_GUIDE.md)** | 💡 **[Examples](examples_hitl.py)**
+
+---
+
+## 🆕 Human-in-the-Loop (HITL) 
+
+Control your AI workflow with human review at each step!
+
+✅ **Review inputs** before sending to agents  
+✅ **Review outputs** after agent execution  
+✅ **Request clarifications** when unclear  
+✅ **Learn from decisions** via mem0  
+✅ **Smart auto-approval** based on confidence  
+
+---
+
 ## Overview
 
 This project implements an **enterprise-grade AI agent ecosystem** using the **A2A (Agent-to-Agent) protocol** for inter-agent communication. The system consists of **5 independent, autonomous agents** orchestrated by a **Supervisor** that transforms natural language requirements into **production-ready applications**:
